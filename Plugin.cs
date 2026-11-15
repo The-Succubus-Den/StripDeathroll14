@@ -74,6 +74,7 @@ public sealed class Plugin : IDalamudPlugin
         Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Config.Normalize();
 
+        KosLib.Kos.Mono = pluginInterface.UiBuilder.MonoFontHandle; // section tags; Dalamud owns the handle
         window = new MainWindow(this);
         windowSystem.AddWindow(window);
 
@@ -104,6 +105,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.OpenMainUi -= window.Toggle;
         pluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         windowSystem.RemoveAllWindows();
+        KosLib.Kos.Mono = null; // not disposed: the handle is Dalamud's
     }
 
     public void SaveConfig() => pluginInterface.SavePluginConfig(Config);

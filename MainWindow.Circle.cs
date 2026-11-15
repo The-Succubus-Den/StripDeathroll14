@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
+using KosLib;
 
 namespace StripDeathroll14;
 
@@ -14,7 +15,7 @@ public sealed partial class MainWindow
     private void DrawCircle(DeathrollGame game)
     {
         var players = game.Players;
-        if (players.Count == 0) { ImGui.TextDisabled("No players yet."); return; }
+        if (players.Count == 0) { Kos.EmptyState("No players yet."); return; }
 
         var scale = ImGuiHelpers.GlobalScale;
         var line = ImGui.GetTextLineHeight();
@@ -91,12 +92,7 @@ public sealed partial class MainWindow
             var y = dir.Y < -0.3f ? anchor.Y - 2 * line : dir.Y > 0.3f ? anchor.Y : anchor.Y - line;
             var nameCol = p.Out ? faint : isCurrent ? green : isStarter ? yellow : text;
             draw.AddText(new Vector2(x, y), nameCol, name);
-            for (var k = 0; k < dotsW / (3 * dot); k++)
-            {
-                var c = new Vector2(x + dot + k * 3 * dot, y + line * 1.5f);
-                if (k < p.Lives) draw.AddCircleFilled(c, dot, nameCol, 12);
-                else draw.AddCircle(c, dot, faint, 12, scale);
-            }
+            if (!p.Out) Kos.Pips(draw, new Vector2(x, y + line * 1.5f), p.Lives, DeathrollGame.StartLives, nameCol, faint, dot);
             draw.AddText(new Vector2(x + dotsW, y + line), faint, sub);
 
             // The seat itself: hover for detail, drag onto another seat to move there, right-click for actions.

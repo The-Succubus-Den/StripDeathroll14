@@ -85,7 +85,7 @@ public sealed partial class MainWindow : Window
             }
             if (game.Phase == Phase.Turns && game.Starter is { } top)
                 ImGui.TextColored(ImGuiColors.DalamudYellow, top.Opening is { } o ? $"Highest opening: {top.Name} ({o})." : $"Started by {top.Name} (next after last round's winner).");
-            if (plugin.LastAlert is { } alert) ImGui.TextColored(ImGuiColors.DalamudRed, alert);
+            if (plugin.LastAlert is { } alert) Kos.Callout(alert, ImGuiColors.DalamudRed);
 
             if (game.Pending is { } pending && pending.Player == game.Current)
             {
@@ -99,13 +99,17 @@ public sealed partial class MainWindow : Window
 
         using (ImRaii.Disabled(!game.CanStartRound))
         {
-            if (game.Phase == Phase.Setup ? ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Play, "Start round") : ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "Restart round"))
+            if (game.Phase == Phase.Setup ? Kos.PrimaryButton(FontAwesomeIcon.Play, "Start round") : ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "Restart round"))
                 plugin.StartRound();
         }
         ImGui.SameLine();
         var myRoll = plugin.MyRoll;
-        using (ImRaii.Disabled(myRoll is null)) { if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Dice, myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}")) plugin.RollForMe(); }
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Your roll: a fresh /random to open or to start the turns, else up to the previous roll. /sdr roll does the same from a macro.");
+        using (ImRaii.Disabled(myRoll is null))
+        {
+            if (Kos.IconButton(FontAwesomeIcon.Dice, myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}",
+                    "Your roll: a fresh /random to open or to start the turns, else up to the previous roll. /sdr roll does the same from a macro."))
+                plugin.RollForMe();
+        }
         ImGui.SameLine();
         using (ImRaii.Disabled(game.Current is null)) { if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Bullhorn, "Call again")) plugin.CallCurrent(); }
         ImGui.SameLine();
@@ -113,15 +117,13 @@ public sealed partial class MainWindow : Window
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: everyone back to 3 pieces, history cleared.");
 
         DrawProposed();
-        ImGui.Separator();
+        Kos.Section("Players");
         DrawAddPlayers(game);
-        var circle = config.CircleView;
-        if (ImGui.RadioButton("Circle", circle)) { config.CircleView = true; plugin.SaveConfig(); }
+        var view = config.CircleView ? 0 : 1;
+        if (Kos.Segmented("view", ref view, "Circle", "List")) { config.CircleView = view == 0; plugin.SaveConfig(); }
         ImGui.SameLine();
-        if (ImGui.RadioButton("List", !circle)) { config.CircleView = false; plugin.SaveConfig(); }
-        ImGui.SameLine();
-        ImGui.TextDisabled(circle ? "Clockwise from the top. Drag a seat to move it; right-click for more." : "Turn order runs down the list.");
-        if (circle) DrawCircle(game);
+        ImGui.TextDisabled(config.CircleView ? "Clockwise from the top. Drag a seat to move it; right-click for more." : "Turn order runs down the list.");
+        if (config.CircleView) DrawCircle(game);
         else DrawPlayers(game);
     }
 
@@ -274,7 +276,7 @@ public sealed partial class MainWindow : Window
     {
         var game = plugin.Game;
         var rounds = game.RollLog.Select(r => r.Round).Concat(game.History.Select(h => h.Round)).Distinct().OrderDescending().ToList();
-        if (rounds.Count == 0) { ImGui.TextDisabled("No rolls yet."); return; }
+        if (rounds.Count == 0) { Kos.EmptyState("No rolls yet."); return; }
 
         foreach (var round in rounds) // newest first, the current round open
         {
@@ -319,8 +321,7 @@ public sealed partial class MainWindow : Window
 
     private void DrawText(string label, string value, Action<string> set, string defaultValue)
     {
-        ImGui.Separator();
-        ImGui.TextUnformatted(label);
+        Kos.Section(label);
         if (ImGui.InputTextMultiline($"##{label}", ref value, 4000, new Vector2(-1, 110))) set(value);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
         if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Bullhorn, $"Post {label.ToLowerInvariant()}")) plugin.PostText(value);
@@ -331,7 +332,7 @@ public sealed partial class MainWindow : Window
     private void DrawSettings()
     {
         var config = plugin.Config;
-        ImGui.TextUnformatted("Reminder");
+        Kos.Section("Reminder", "01");
         var on = config.ReminderEnabled;
         if (ImGui.Checkbox("Remind whoever has not rolled", ref on)) { config.ReminderEnabled = on; plugin.SaveConfig(); }
         var secs = config.ReminderSeconds;
@@ -344,14 +345,13 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled($"Posts \"Reminder: Name, it's your turn - roll ...\" (or lists everyone missing an opening roll) after that long\n" +
             $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn, whether or not the call was posted. Not while a wrong roll waits for you.");
 
-        ImGui.Separator();
-        ImGui.TextUnformatted("Look");
+        Kos.Section("Look", "02");
         ImGui.SetNextItemWidth(200);
         if (Combo("Accent", config.Accent, Enum.GetValues<KosAccent>(), KosTheme.Label, a => config.Accent = a)) plugin.SaveConfig();
-        ImGui.TextDisabled("Colours this window's buttons, tabs, checkboxes and sliders. Dalamud style keeps your own theme untouched.");
+        ImGui.TextDisabled("Colours this window's buttons, tabs, checkboxes and sliders, and edges its cards and section headers.\n" +
+            "KosMos is the profile site's crimson and gold, with night cards and rounder frames. Dalamud style keeps your own theme untouched.");
 
-        ImGui.Separator();
-        ImGui.TextUnformatted("Debug");
+        Kos.Section("Debug", "03");
         var debug = plugin.DebugMode;
         if (ImGui.Checkbox("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
         ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +

@@ -72,8 +72,8 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 - **Circle / List** — how the Game tab shows the players (Circle by default).
 - **Rules & Ad** — the two texts and the channel they go to (Say, Yell, Party).
 - **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), Say or Party.
-- **Accent** (Settings tab) — Dalamud style (the default, pushes no colours) or one of five accent presets (Teal, Violet, Amber, Crimson, Ocean) for this window's buttons, tabs, checkboxes and sliders. Your Dalamud theme's background and text are never changed.
-- **Debug mode** (Settings tab) — session only, never saved. While it is on, the Settings tab also shows the KosLib gallery (every card, badge and accent preset).
+- **Accent** (Settings tab) — Dalamud style (the default, pushes no colours), one of five accent presets (Teal, Violet, Amber, Crimson, Ocean) for this window's buttons, tabs, checkboxes, sliders, cards and section headers, or **KosMos**: the K'os Mos profile site's crimson and gold, night cards with a crimson-to-gold top edge, and rounder frames. Your Dalamud theme's background and text are never changed.
+- **Debug mode** (Settings tab) — session only, never saved. While it is on, the Settings tab also shows the KosLib gallery (every component in every preset).
 
 ## Build
 
@@ -125,7 +125,7 @@ Game.cs            pure rules: players, opening, turns, endings, piece picks, hi
 Plugin.cs          chat reading, the send queue, party and target import, alerts, reminders, debug rolls
 MainWindow.cs      Game / History / Rules & Ad / Settings tabs
 Configuration.cs   saved settings and texts
-KosLib/            submodule: shared card, badge and accent presets (github.com/priestkos/KosLib), compiled in from KosLib/src
+KosLib/            submodule: shared cards, section headers, toggles and presets (github.com/priestkos/KosLib), compiled in from KosLib/src
 StripDeathroll14.Tests/   xUnit tests over Game.cs
 docs/              mock-up screenshots and walkthrough video
 images/            icon.svg (source) and icon.png (manifest icon)
