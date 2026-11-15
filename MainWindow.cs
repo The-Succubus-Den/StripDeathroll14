@@ -16,6 +16,7 @@ public sealed partial class MainWindow : Window
     private string addNote = "";
     private Player? pickTarget;
     private Piece? pickPiece;
+    private KosTheme.Scope? windowTheme;
 
     public MainWindow(Plugin plugin) : base("Strip Deathroll###StripDeathroll14")
     {
@@ -23,6 +24,20 @@ public sealed partial class MainWindow : Window
         Size = new Vector2(560, 600);
         SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(440, 360), MaximumSize = new Vector2(1200, 1400) };
+    }
+
+    /// <summary>The opt-in whole-window theme has to be pushed before ImGui begins the window, so it lives here.</summary>
+    public override void PreDraw()
+    {
+        windowTheme?.Dispose();
+        windowTheme = plugin.Config.WholeWindowTheme ? KosTheme.PushWindow(plugin.Config.Accent) : null;
+    }
+
+    /// <summary>Dalamud calls this whenever it called PreDraw, so the whole-window push is always popped.</summary>
+    public override void PostDraw()
+    {
+        windowTheme?.Dispose();
+        windowTheme = null;
     }
 
     public override void Draw()
@@ -348,6 +363,19 @@ public sealed partial class MainWindow : Window
         Kos.Section("Look", "02");
         ImGui.SetNextItemWidth(200);
         if (Combo("Accent", config.Accent, Enum.GetValues<KosAccent>(), KosTheme.Label, a => config.Accent = a)) plugin.SaveConfig();
+        using (ImRaii.Disabled(config.Accent == KosAccent.Dalamud))
+        {
+            var whole = config.WholeWindowTheme;
+            if (ImGui.Checkbox("Theme the whole window", ref whole))
+            {
+                config.WholeWindowTheme = whole;
+                plugin.SaveConfig();
+            }
+        }
+        ImGui.SameLine();
+        Kos.HelpMarker("Off: only buttons, tabs, frames and KosLib's own pieces take the accent, over your Dalamud theme.\n" +
+            "On: the background, title bar, text and borders take it too, light or dark like your theme, keeping its transparency.\n" +
+            "Has no effect under Dalamud style.");
         ImGui.TextDisabled("Colours this window's buttons, tabs, checkboxes and sliders, and edges its cards and section headers.\n" +
             "KosMos is the profile site's crimson and gold, with night cards and rounder frames. Dalamud style keeps your own theme untouched.");
 

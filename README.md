@@ -72,7 +72,8 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 - **Circle / List** — how the Game tab shows the players (Circle by default).
 - **Rules & Ad** — the two texts and the channel they go to (Say, Yell, Party).
 - **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), Say or Party.
-- **Accent** (Settings tab) — Dalamud style (the default, pushes no colours), one of five accent presets (Teal, Violet, Amber, Crimson, Ocean) for this window's buttons, tabs, checkboxes, sliders, cards and section headers, or **KosMos**: the K'os Mos profile site's crimson and gold, night cards with a crimson-to-gold top edge, and rounder frames. Your Dalamud theme's background and text are never changed.
+- **Accent** (Settings tab) — Dalamud style (the default, pushes no colours), one of five accent presets (Teal, Violet, Amber, Crimson, Ocean) for this window's buttons, tabs, checkboxes, sliders, cards and section headers, or **KosMos**: the K'os Mos profile site's crimson and gold, night cards with a crimson-to-gold top edge, and rounder frames. Your Dalamud theme's background and text are left alone unless you tick the next option.
+- **Theme the whole window** (Settings tab, off by default; greyed out under Dalamud style) — the accent also colours this window's background, title bar, text, borders, scrollbars, popups and tables, light or dark like your theme and keeping its transparency.
 - **Debug mode** (Settings tab) — session only, never saved. While it is on, the Settings tab also shows the KosLib gallery (every component in every preset).
 
 ## Build

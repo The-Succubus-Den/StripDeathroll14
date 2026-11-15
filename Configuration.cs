@@ -29,6 +29,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Window accent preset; Dalamud style (the default) pushes no colours.</summary>
     public KosAccent Accent { get; set; } = KosAccent.Dalamud;
 
+    /// <summary>Off by default: the accent also colours the window itself (background, title bar, text, borders).</summary>
+    public bool WholeWindowTheme { get; set; }
+
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;
