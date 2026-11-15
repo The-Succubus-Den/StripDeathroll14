@@ -368,7 +368,7 @@ public sealed partial class MainWindow : Window
 
     private static string Worn(Player p) => p.Out ? "nothing" : string.Join(", ", p.Worn);
 
-    private static string VenueLabel(Venue v) => v == Venue.Private ? "Private room (say)" : "Public (party/alliance)";
+    private static string VenueLabel(Venue v) => v == Venue.Private ? "Private room (yell)" : "Public (party/alliance)";
 
     private static string CallLabel(CallChannel c) => c == CallChannel.Venue ? "Venue default" : c.ToString();
 

@@ -419,7 +419,7 @@ public static class Lines
         return n is null ? cmd : $"{cmd} {n}";
     }
 
-    public static string AnnouncePrefix(Venue venue, bool alliance) => venue == Venue.Private ? "/s" : alliance ? "/a" : "/p";
+    public static string AnnouncePrefix(Venue venue, bool alliance) => venue == Venue.Private ? "/y" : alliance ? "/a" : "/p";
 
     public static string CallPrefix(CallChannel c, Venue venue, bool alliance) => c switch
     {

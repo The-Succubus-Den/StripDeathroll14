@@ -399,14 +399,14 @@ public class GameTests
         Assert.Equal("/random 532", Lines.RollCommand(Venue.Private, true, 532));
         Assert.Equal("/dice party 532", Lines.RollCommand(Venue.Public, false, 532));
         Assert.Equal("/dice alliance", Lines.RollCommand(Venue.Public, true, null));
-        Assert.Equal("/s", Lines.AnnouncePrefix(Venue.Private, true));
+        Assert.Equal("/y", Lines.AnnouncePrefix(Venue.Private, true));
         Assert.Equal("/p", Lines.AnnouncePrefix(Venue.Public, false));
         Assert.Equal("/a", Lines.AnnouncePrefix(Venue.Public, true));
         Assert.Equal("/y", Lines.TextPrefix(TextChannel.Yell));
         Assert.Equal("Ann Lee, roll /random 532", Lines.Call("Ann Lee", "/random 532"));
         Assert.Equal("Bo Ray loses their top! 1 piece left.", Lines.Stripped("Bo Ray", Piece.Top, 1));
         Assert.Equal("Bo Ray loses their shoes, the last piece, and is out!", Lines.Stripped("Bo Ray", Piece.Shoes, 0));
-        Assert.Equal("/s", Lines.CallPrefix(CallChannel.Venue, Venue.Private, true));
+        Assert.Equal("/y", Lines.CallPrefix(CallChannel.Venue, Venue.Private, true));
         Assert.Equal("/a", Lines.CallPrefix(CallChannel.Venue, Venue.Public, true));
         Assert.Equal("/y", Lines.CallPrefix(CallChannel.Yell, Venue.Public, true));
         Assert.Equal("/s", Lines.CallPrefix(CallChannel.Say, Venue.Public, false));

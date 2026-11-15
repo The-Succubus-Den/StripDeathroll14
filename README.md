@@ -30,7 +30,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 
 ## What it does
 
-- **Private or Public** — a dropdown. Private room: calls go to `/s` and players roll `/random N`. Public: calls go to `/p` (or `/a` when you are in an alliance) and players roll `/dice party N` / `/dice alliance N`, so the rolls stay in the group. Rolls are read in every form either way.
+- **Private or Public** — a dropdown. Private room: calls go to `/y` and players roll `/random N`. Public: calls go to `/p` (or `/a` when you are in an alliance) and players roll `/dice party N` / `/dice alliance N`, so the rolls stay in the group. Rolls are read in every form either way.
 - **Calls in** — where your calls and results go: *Venue default* (as above), Say, Yell or Party.
 - **Player list** — add everyone in your party or alliance (cross-world parties included) with one button, add the player you have targeted with *Add target*, or type names in as `Forename Surname`. Remove (Ctrl+click) and move players up or down; the list *is* the turn order and the plugin never reorders it.
 - **Circle or List** — the Game tab seats the players round a circle by default, in turn order clockwise from the top: the player to roll is green with a pulsing ring, a green arrow points to whoever is up after them, the opener/starter is yellow, out players are dimmed, and each seat shows the pieces still worn as dots and the last roll. Drag a seat onto another to move that player there (the others shift round); right-click a seat to move it one place, remove it (hold Ctrl) or, in debug mode, roll for a dummy. *List* switches back to the table with the Up/Dn buttons.
@@ -66,7 +66,7 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 
 ## Settings
 
-- **Venue** — Private room (say) or Public (party/alliance).
+- **Venue** — Private room (yell) or Public (party/alliance).
 - **Calls in** — Venue default, Say, Yell or Party.
 - **Auto-post** — off by default; on posts calls and results as they happen.
 - **Circle / List** — how the Game tab shows the players (Circle by default).
