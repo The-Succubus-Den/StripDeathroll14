@@ -499,6 +499,22 @@ public class GameTests
         Assert.Equal("Bo Ray", g.Current!.Name);                          // after Cy, Ann is skipped
     }
 
+    [Fact]
+    public void WinnerWhoStripsThemselvesOutDoesNotBlockTheNextStarter()
+    {
+        var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
+        for (var i = 0; i < 2; i++) WinRound(g, "Ann Lee", "Ann Lee");
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        g.OnRoll(P(g, "Bo Ray"), 10, null);
+        g.OnRoll(P(g, "Cy Dee"), 20, null);
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Ann Lee"), 1, null));
+        Assert.True(g.Pick(P(g, "Ann Lee")));      // her last piece: out
+        Assert.True(P(g, "Ann Lee").Out);
+        Assert.Equal("Bo Ray", g.Current!.Name);   // next after the (now out) winner
+        Assert.Equal(RollOutcome.Ignored, g.OnRoll(P(g, "Ann Lee"), 5, null));
+    }
+
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
         if (g.Phase != Phase.Opening) g.StartRound();

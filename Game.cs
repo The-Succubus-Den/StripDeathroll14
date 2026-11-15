@@ -242,6 +242,7 @@ public sealed class DeathrollGame
         Phase = Phase.Setup;
         StartRound();
         // Round 2 on: no opening roll; the next player in the list after the winner starts with a fresh /random.
+        // The piece is already off, so a player who just went out is skipped (NextActive ignores Out).
         Starter = Current = NextActive(from);
         turnSerial++;
         Phase = Phase.Turns;
