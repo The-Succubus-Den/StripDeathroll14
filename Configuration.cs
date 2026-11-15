@@ -36,6 +36,12 @@ public sealed class Configuration : IPluginConfiguration
     public int ReminderSeconds { get; set; } = 30;
     public TextChannel ReminderChannel { get; set; } = TextChannel.Say; // Say or Party only
 
+    /// <summary>Off by default. On: the reminder prints to your own Echo and nothing is sent.</summary>
+    public bool ReminderOnlyMe { get; set; }
+
+    /// <summary>The wording of every line the plugin posts (rules and ad are their own texts below).</summary>
+    public Messages Messages { get; set; } = new();
+
     public string RulesText { get; set; } =
         "Strip Deathroll! Everyone rolls /random or /dice to start; highest goes first, then clockwise.\n" +
         "On your turn, roll /random or /dice up to the number the player before you rolled.\n" +
@@ -54,6 +60,7 @@ public sealed class Configuration : IPluginConfiguration
         ReminderSeconds = Math.Clamp(ReminderSeconds, MinReminderSeconds, 120);
         SendMinSeconds = Math.Clamp(SendMinSeconds, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000);
         SendMaxSeconds = Math.Clamp(SendMaxSeconds, SendMinSeconds, Outbox.MaxGapMs / 1000);
+        Messages ??= new();
         RulesText ??= "";
         AdText ??= "";
     }

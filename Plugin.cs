@@ -60,6 +60,13 @@ public sealed class Plugin : IDalamudPlugin
     public int RemindersSent => reminder.Sent;
     public int? ReminderSecondsLeft => reminder.SecondsLeft(Environment.TickCount64);
 
+    /// <summary>Session only: holds the reminder clock (and its countdown) until resumed.</summary>
+    public bool ReminderPaused
+    {
+        get => reminder.Paused;
+        set { if (value) reminder.Pause(Environment.TickCount64); else reminder.Resume(Environment.TickCount64); }
+    }
+
     /// <summary>Session only: dummy players, and every post goes to Echo instead of chat.</summary>
     public bool DebugMode { get; private set; }
 
@@ -140,7 +147,7 @@ public sealed class Plugin : IDalamudPlugin
     public void StartRound()
     {
         Game.StartRound();
-        if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null)));
+        if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null), Config.Messages));
     }
 
     public void Pick(Player target, Piece piece)
@@ -150,11 +157,12 @@ public sealed class Plugin : IDalamudPlugin
         if (!Game.Pick(target, piece)) return;
 
         // One event, one batch: the win (if not posted yet), who lost what, then the game-over line or the next call.
+        var m = Config.Messages;
         var lines = new List<string>();
-        if (w is not null && Proposed.Contains(Lines.Won(w.Name, roll, round))) lines.Add(Lines.Won(w.Name, roll, round, ask: false));
-        lines.Add(Lines.Stripped(target.Name, piece, target.Lives));
-        if (Game.Phase == Phase.GameOver) lines.Add(Lines.GameOver(Game.Active.First().Name));
-        else if (Game.Current is { } p) lines.Add(Lines.Call(p.Name, RollCommand(Game.Limit)));
+        if (w is not null && Proposed.Contains(Lines.Won(w.Name, roll, round, m: m))) lines.Add(Lines.Won(w.Name, roll, round, ask: false, m: m));
+        lines.Add(Lines.Stripped(target.Name, piece, target.Lives, m));
+        if (Game.Phase == Phase.GameOver) lines.Add(Lines.GameOver(Game.Active.First().Name, m));
+        else if (Game.Current is { } p) lines.Add(Lines.Call(p.Name, RollCommand(Game.Limit), m));
         Propose([.. lines]);
     }
 
@@ -162,7 +170,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void CallCurrent()
     {
-        if (Game.Current is { } p) Propose(Lines.Call(p.Name, RollCommand(Game.Limit)));
+        if (Game.Current is { } p) Propose(Lines.Call(p.Name, RollCommand(Game.Limit), Config.Messages));
     }
 
     /// <summary>Your roll right now: a fresh /random for the opening or when you start the turns, else the previous roll; null when it is not your roll.</summary>
@@ -185,13 +193,13 @@ public sealed class Plugin : IDalamudPlugin
 
     public void PostProposed()
     {
-        foreach (var line in Proposed) Enqueue(CallPrefix, line, false);
+        foreach (var line in Proposed) Enqueue(CallPrefix, line);
         Proposed.Clear();
     }
 
     public void PostText(string text)
     {
-        foreach (var line in Lines.TextLines(text)) Enqueue(Lines.TextPrefix(Config.TextChannel), line, true);
+        foreach (var line in Lines.TextLines(text)) Enqueue(Lines.TextPrefix(Config.TextChannel), line);
     }
 
     public int AddGroup()
@@ -250,12 +258,13 @@ public sealed class Plugin : IDalamudPlugin
     // Each call replaces what waits for Post (an older call is stale), but the lines of one event stay together.
     private void Propose(params string[] lines)
     {
-        if (Config.AutoPost) { foreach (var line in lines) Enqueue(CallPrefix, line, false); return; }
+        if (Config.AutoPost) { foreach (var line in lines) Enqueue(CallPrefix, line); return; }
         Proposed.Clear();
         Proposed.AddRange(lines);
     }
 
-    private void Enqueue(string prefix, string line, bool freeText)
+    // Every posted line is host-worded now (templates, rules, ad), so each one gets the game-sanitiser check before sending.
+    private void Enqueue(string prefix, string line)
     {
         if (DebugMode)
         {
@@ -264,7 +273,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         if (!Lines.IsSendable(line)) Alert($"Not sent (too long, starts with /, or has a line break): {line}");
-        else if (!outbox.Add(prefix, line, freeText)) Alert($"Not sent (already waiting, or {Outbox.MaxWaiting} lines queued): {line}");
+        else if (!outbox.Add(prefix, line, true)) Alert($"Not sent (already waiting, or {Outbox.MaxWaiting} lines queued): {line}");
     }
 
     private void Alert(string text)
@@ -332,7 +341,7 @@ public sealed class Plugin : IDalamudPlugin
                 CallCurrent();
                 break;
             case RollOutcome.Won:
-                Propose(Lines.Won(Game.Winner!.Name, Game.WinningRoll, Game.Round));
+                Propose(Lines.Won(Game.Winner!.Name, Game.WinningRoll, Game.Round, m: Config.Messages));
                 break;
         }
     }
@@ -342,7 +351,9 @@ public sealed class Plugin : IDalamudPlugin
         var names = Game.Waiting.Select(p => p.Name).ToList();
         if (names.Count == 0) return;
         var opening = Game.Phase == Phase.Opening;
-        Enqueue(Lines.TextPrefix(Config.ReminderChannel), Lines.Reminder(names, RollCommand(opening ? null : Game.Limit), opening), false);
+        var line = Lines.Reminder(names, RollCommand(opening ? null : Game.Limit), opening, Config.Messages);
+        if (Config.ReminderOnlyMe) chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {line}" });
+        else Enqueue(Lines.TextPrefix(Config.ReminderChannel), line);
     }
 
     private static string? PlayerName(SeString s) => s.Payloads.OfType<PlayerPayload>().FirstOrDefault()?.PlayerName;

@@ -445,6 +445,39 @@ public class GameTests
     }
 
     [Fact]
+    public void ReminderClockPausesAndResumes()
+    {
+        var clock = new ReminderClock();
+        Assert.False(clock.Due("a", 0, 30_000));
+        clock.Pause(10_000);                                   // 20 s left
+        Assert.True(clock.Paused);
+        Assert.Equal(20, clock.SecondsLeft(99_000));           // frozen while paused
+        Assert.False(clock.Due("a", 99_000, 30_000));          // never fires while paused
+        clock.Resume(100_000);
+        Assert.False(clock.Due("a", 119_999, 30_000));
+        Assert.True(clock.Due("a", 120_000, 30_000));          // the 20 s it had left
+        clock.Pause(125_000);
+        Assert.False(clock.Due("b", 126_000, 30_000));         // a new wait while paused: full time, still paused
+        Assert.True(clock.Paused);
+        Assert.Equal(30, clock.SecondsLeft(500_000));
+        clock.Resume(500_000);
+        Assert.Equal(0, clock.Sent);
+        Assert.True(clock.Due("b", 530_000, 30_000));
+    }
+
+    [Fact]
+    public void MessagesAreTheHostsWords()
+    {
+        var m = new Messages { Call = "{name} -> {roll} (round's on {name})", ReminderOpening = "  ", Stripped = "{name}: {piece} off, {left} to go" };
+        Assert.Equal("Ann Lee -> /random 40 (round's on Ann Lee)", Lines.Call("Ann Lee", "/random 40", m));
+        Assert.Equal("Bo Ray: top off, 2 pieces to go", Lines.Stripped("Bo Ray", Piece.Top, 2, m));
+        Assert.Equal(Lines.Reminder(["Ann Lee"], "/random", true), Lines.Reminder(["Ann Lee"], "/random", true, m)); // blank: the default
+        Assert.Equal(Lines.GameOver("Ann Lee"), Lines.GameOver("Ann Lee", new Messages()));
+        Assert.Equal("{nope} Ann Lee", Lines.Fill("{nope} {name}", "", ("name", "Ann Lee"))); // unknown keys stay as typed
+        Assert.False(Lines.IsSendable(Lines.Call("Ann Lee", "/random", new Messages { Call = "{roll} now, {name}" }))); // still guarded
+    }
+
+    [Fact]
     public void OpeningTieIsFlagged()
     {
         var g = Game("Ann Lee", "Bo Ray");

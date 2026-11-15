@@ -335,11 +335,22 @@ public sealed class ReminderClock
     public const int MaxPerTurn = 3;
     private string? key;
     private long dueAt;
+    private long? pausedLeft; // ms on the clock while paused; a new wait while paused starts full and stays paused
 
     public int Sent { get; private set; }
+    public bool Paused => pausedLeft is not null;
 
-    /// <summary>Whole seconds (rounded up) until the next reminder; null when none is coming.</summary>
-    public int? SecondsLeft(long now) => key is null || Sent >= MaxPerTurn ? null : (int)Math.Max(0, (dueAt - now + 999) / 1000);
+    public void Pause(long now) => pausedLeft ??= Math.Max(0, dueAt - now);
+
+    public void Resume(long now)
+    {
+        if (pausedLeft is not { } left) return;
+        dueAt = now + left;
+        pausedLeft = null;
+    }
+
+    /// <summary>Whole seconds (rounded up) until the next reminder, frozen while paused; null when none is coming.</summary>
+    public int? SecondsLeft(long now) => key is null || Sent >= MaxPerTurn ? null : (int)((pausedLeft ?? Math.Max(0, dueAt - now)) + 999) / 1000;
 
     public bool Due(string? stateKey, long now, int intervalMs)
     {
@@ -347,11 +358,12 @@ public sealed class ReminderClock
         {
             key = stateKey;
             dueAt = now + intervalMs;
+            if (pausedLeft is not null) pausedLeft = intervalMs;
             Sent = 0;
             return false;
         }
 
-        if (key is null || Sent >= MaxPerTurn || now < dueAt) return false;
+        if (key is null || pausedLeft is not null || Sent >= MaxPerTurn || now < dueAt) return false;
         Sent++;
         dueAt = now + intervalMs;
         return true;
@@ -421,9 +433,40 @@ public static partial class Rolls
     private static ParsedRoll? Checked(ParsedRoll r) => r.Value >= 0 && r.Max is null or >= 2 && r.Value <= (r.Max ?? int.MaxValue) ? r : null;
 }
 
+/// <summary>
+/// The host's wording for every line the plugin posts. {placeholders} are filled in when the line is made;
+/// a blank text falls back to the default, so a line can never go out empty.
+/// </summary>
+[Serializable]
+public sealed class Messages
+{
+    public static readonly Messages Default = new(); // never changed: the fallback for blank texts
+
+    public string Opening { get; set; } = "Strip Deathroll round {round}! Everyone roll {roll} - highest goes first.";
+    public string Call { get; set; } = "{name}, roll {roll}";
+    public string Won { get; set; } = "{name} rolled {number} and wins round {round}! {name}, who strips?";
+    public string WonAndPicked { get; set; } = "{name} rolled {number} and wins round {round}!"; // the strip line follows in the same post
+    public string Stripped { get; set; } = "{name} loses their {piece}! {left} left.";
+    public string StrippedOut { get; set; } = "{name} loses their {piece}, the last piece, and is out!";
+    public string GameOver { get; set; } = "{name} is the last one standing and wins Strip Deathroll!";
+    public string ReminderTurn { get; set; } = "Reminder: {name}, it's your turn - roll {roll}";
+    public string ReminderOpening { get; set; } = "Still waiting on {names}: roll {roll} to start the round.";
+}
+
 /// <summary>Every line the plugin posts, and the command prefixes it posts them with.</summary>
 public static class Lines
 {
+    /// <summary>
+    /// <paramref name="template"/> (or <paramref name="fallback"/> when blank) with each {key} replaced. Values are
+    /// plugin-made (validated names, numbers, roll commands), so they can never hold a {key} of their own.
+    /// </summary>
+    public static string Fill(string? template, string fallback, params (string Key, object Value)[] values)
+    {
+        var s = string.IsNullOrWhiteSpace(template) ? fallback : template.Trim();
+        foreach (var (k, v) in values) s = s.Replace("{" + k + "}", v.ToString());
+        return s;
+    }
+
     /// <summary>The roll command players are asked to use; n null = the bare opening roll.</summary>
     public static string RollCommand(Venue venue, bool alliance, int? n)
     {
@@ -448,29 +491,33 @@ public static class Lines
         _ => "/s",
     };
 
-    public static string Opening(int round, string cmd) => $"Strip Deathroll round {round}! Everyone roll {cmd} - highest goes first.";
+    private static readonly Messages D = Messages.Default;
 
-    public static string Call(string name, string cmd) => $"{name}, roll {cmd}";
+    public static string Opening(int round, string cmd, Messages? m = null) =>
+        Fill(m?.Opening, D.Opening, ("round", round), ("roll", cmd));
+
+    public static string Call(string name, string cmd, Messages? m = null) => Fill(m?.Call, D.Call, ("name", name), ("roll", cmd));
 
     /// <summary>ask = false when the strip result follows in the same post, so the question is already answered.</summary>
-    public static string Won(string winner, int roll, int round, bool ask = true) =>
-        $"{winner} rolled {roll} and wins round {round}!" + (ask ? $" {winner}, who strips?" : "");
+    public static string Won(string winner, int roll, int round, bool ask = true, Messages? m = null) => ask
+        ? Fill(m?.Won, D.Won, ("name", winner), ("number", roll), ("round", round))
+        : Fill(m?.WonAndPicked, D.WonAndPicked, ("name", winner), ("number", roll), ("round", round));
 
     public static string PieceName(Piece p) => p.ToString().ToLowerInvariant();
 
-    public static string Stripped(string target, Piece piece, int livesLeft) => livesLeft > 0
-        ? $"{target} loses their {PieceName(piece)}! {livesLeft} {(livesLeft == 1 ? "piece" : "pieces")} left."
-        : $"{target} loses their {PieceName(piece)}, the last piece, and is out!";
+    public static string Stripped(string target, Piece piece, int livesLeft, Messages? m = null) => livesLeft > 0
+        ? Fill(m?.Stripped, D.Stripped, ("name", target), ("piece", PieceName(piece)), ("left", $"{livesLeft} {(livesLeft == 1 ? "piece" : "pieces")}"))
+        : Fill(m?.StrippedOut, D.StrippedOut, ("name", target), ("piece", PieceName(piece)));
 
     /// <summary>The timed nudge; a long opening list is cut so the line stays short.</summary>
-    public static string Reminder(IReadOnlyList<string> names, string cmd, bool opening)
+    public static string Reminder(IReadOnlyList<string> names, string cmd, bool opening, Messages? m = null)
     {
-        if (!opening) return $"Reminder: {names[0]}, it's your turn - roll {cmd}";
+        if (!opening) return Fill(m?.ReminderTurn, D.ReminderTurn, ("name", names[0]), ("roll", cmd));
         var shown = string.Join(", ", names.Take(6)) + (names.Count > 6 ? $" and {names.Count - 6} more" : "");
-        return $"Still waiting on {shown}: roll {cmd} to start the round.";
+        return Fill(m?.ReminderOpening, D.ReminderOpening, ("names", shown), ("roll", cmd));
     }
 
-    public static string GameOver(string name) => $"{name} is the last one standing and wins Strip Deathroll!";
+    public static string GameOver(string name, Messages? m = null) => Fill(m?.GameOver, D.GameOver, ("name", name));
 
     /// <summary>A line is safe to send only as one short line that is not a command of its own.</summary>
     public static bool IsSendable(string line) =>

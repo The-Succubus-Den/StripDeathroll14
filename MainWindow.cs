@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
@@ -44,7 +45,7 @@ public sealed partial class MainWindow : Window
         if (!bar) return;
         using (var t = ImRaii.TabItem("Game")) if (t) DrawGame();
         using (var t = ImRaii.TabItem("History")) if (t) DrawHistory();
-        using (var t = ImRaii.TabItem("Rules & Ad")) if (t) DrawTexts();
+        using (var t = ImRaii.TabItem("Messages")) if (t) DrawTexts();
         using (var t = ImRaii.TabItem("Settings")) if (t) DrawSettings();
     }
 
@@ -92,8 +93,13 @@ public sealed partial class MainWindow : Window
             ImGui.TextUnformatted(Status(game));
             if (plugin.ReminderSecondsLeft is { } left)
             {
+                var paused = plugin.ReminderPaused;
                 ImGui.SameLine();
-                ImGui.TextDisabled($"Reminder in {left} s ({ReminderClock.MaxPerTurn - plugin.RemindersSent} left).");
+                ImGui.TextDisabled(paused ? $"Reminder paused at {left} s." : $"Reminder in {left} s ({ReminderClock.MaxPerTurn - plugin.RemindersSent} left).");
+                ImGui.SameLine();
+                if (MaterialKos.Button(paused ? "Resume##rem" : "Pause##rem", MaterialButton.Text, paused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause))
+                    plugin.ReminderPaused = !paused;
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Holds the reminder timer, through turn changes too, until you resume it. This session only.");
             }
             if (game.Phase == Phase.Turns && game.Starter is { } top)
                 ImGui.TextColored(ImGuiColors.DalamudYellow, top.Opening is { } o ? $"Highest opening: {top.Name} ({o})." : $"Started by {top.Name} (next after last round's winner).");
@@ -101,9 +107,9 @@ public sealed partial class MainWindow : Window
 
             if (game.Pending is { } pending && pending.Player == game.Current)
             {
-                if (MaterialKos.Button($"Accept {pending.Value}")) plugin.AcceptPending();
+                if (MaterialKos.Button($"Accept {pending.Value}", MaterialButton.Filled, FontAwesomeIcon.Check)) plugin.AcceptPending();
                 ImGui.SameLine();
-                if (MaterialKos.Button("Ask for reroll", MaterialButton.Tonal)) plugin.CallCurrent();
+                if (MaterialKos.Button("Ask for reroll", MaterialButton.Tonal, FontAwesomeIcon.RedoAlt)) plugin.CallCurrent();
             }
 
             if (game.Phase == Phase.Pick) DrawPick(game);
@@ -111,21 +117,21 @@ public sealed partial class MainWindow : Window
 
         using (ImRaii.Disabled(!game.CanStartRound))
         {
-            if (game.Phase == Phase.Setup ? MaterialKos.Button("Start round") : MaterialKos.Button("Restart round", MaterialButton.Outlined))
+            if (game.Phase == Phase.Setup ? MaterialKos.Button("Start round", MaterialButton.Filled, FontAwesomeIcon.Play) : MaterialKos.Button("Restart round", MaterialButton.Outlined, FontAwesomeIcon.Redo))
                 plugin.StartRound();
         }
         ImGui.SameLine();
         var myRoll = plugin.MyRoll;
         using (ImRaii.Disabled(myRoll is null))
         {
-            if (MaterialKos.Button(myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}")) plugin.RollForMe();
+            if (MaterialKos.Button(myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}", MaterialButton.Filled, FontAwesomeIcon.Dice)) plugin.RollForMe();
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                 ImGui.SetTooltip("Your roll: a fresh /random to open or to start the turns, else up to the previous roll. /sdr roll does the same from a macro.");
         }
         ImGui.SameLine();
-        using (ImRaii.Disabled(game.Current is null)) { if (MaterialKos.Button("Call again", MaterialButton.Tonal)) plugin.CallCurrent(); }
+        using (ImRaii.Disabled(game.Current is null)) { if (MaterialKos.Button("Call again", MaterialButton.Tonal, FontAwesomeIcon.Bullhorn)) plugin.CallCurrent(); }
         ImGui.SameLine();
-        if (MaterialKos.Button("New game", MaterialButton.Text) && ImGui.GetIO().KeyCtrl) game.NewGame();
+        if (MaterialKos.Button("New game", MaterialButton.Text, FontAwesomeIcon.Broom) && ImGui.GetIO().KeyCtrl) game.NewGame();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: everyone back to 3 pieces, history cleared.");
 
         DrawProposed();
@@ -165,7 +171,7 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         using (ImRaii.Disabled(pickPiece is null))
         {
-            if (MaterialKos.Button("Confirm") && pickPiece is { } chosen)
+            if (MaterialKos.Button("Confirm", MaterialButton.Filled, FontAwesomeIcon.Check) && pickPiece is { } chosen)
             {
                 plugin.Pick(pickTarget, chosen);
                 pickTarget = null;
@@ -186,9 +192,9 @@ public sealed partial class MainWindow : Window
         {
             ImGui.TextUnformatted($"To post in {plugin.CallPrefix}:");
             foreach (var line in plugin.Proposed) ImGui.BulletText(line);
-            if (MaterialKos.Button("Post")) plugin.PostProposed();
+            if (MaterialKos.Button("Post", MaterialButton.Filled, FontAwesomeIcon.PaperPlane)) plugin.PostProposed();
             ImGui.SameLine();
-            if (MaterialKos.Button("Discard", MaterialButton.Text)) plugin.Proposed.Clear();
+            if (MaterialKos.Button("Discard", MaterialButton.Text, FontAwesomeIcon.Times)) plugin.Proposed.Clear();
         });
     }
 
@@ -197,20 +203,20 @@ public sealed partial class MainWindow : Window
         ImGui.SetNextItemWidth(180);
         var enter = ImGui.InputTextWithHint("##name", "Forename Surname", ref newName, 32, ImGuiInputTextFlags.EnterReturnsTrue);
         ImGui.SameLine();
-        if (MaterialKos.Button("Add", MaterialButton.Tonal) || enter)
+        if (MaterialKos.Button("Add", MaterialButton.Tonal, FontAwesomeIcon.Plus) || enter)
         {
             addNote = game.Add(newName) ? "" : "Needs Forename Surname (letters, ' or -), not already listed.";
             if (addNote.Length == 0) newName = "";
         }
 
         ImGui.SameLine();
-        if (MaterialKos.Button("Add target", MaterialButton.Tonal)) addNote = plugin.AddTarget();
+        if (MaterialKos.Button("Add target", MaterialButton.Tonal, FontAwesomeIcon.Crosshairs)) addNote = plugin.AddTarget();
         ImGui.SameLine();
-        if (MaterialKos.Button("Add party/alliance", MaterialButton.Tonal)) addNote = $"Added {plugin.AddGroup()} player(s).";
+        if (MaterialKos.Button("Add party/alliance", MaterialButton.Tonal, FontAwesomeIcon.Users)) addNote = $"Added {plugin.AddGroup()} player(s).";
         if (plugin.DebugMode)
         {
             ImGui.SameLine();
-            if (MaterialKos.Button("Add dummy", MaterialButton.Outlined)) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
+            if (MaterialKos.Button("Add dummy", MaterialButton.Outlined, FontAwesomeIcon.Robot)) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
         }
 
         if (addNote.Length > 0) ImGui.TextDisabled(addNote);
@@ -261,6 +267,37 @@ public sealed partial class MainWindow : Window
         var defaults = new Configuration();
         DrawText("Rules", config.RulesText, v => config.RulesText = v, defaults.RulesText);
         DrawText("Ad", config.AdText, v => config.AdText = v, defaults.AdText);
+
+        Kos.Section("Game lines");
+        ImGui.TextDisabled("What the plugin posts during a game. Words in {braces} are filled in; a blank line uses the default.");
+        var m = config.Messages;
+        const string ann = "Ann Lee", bo = "Bo Ray";
+        DrawMessage("Round start", "{round} {roll}", m.Opening, v => m.Opening = v, () => Lines.Opening(3, "/random", m));
+        DrawMessage("Call", "{name} {roll}", m.Call, v => m.Call = v, () => Lines.Call(ann, "/random 412", m));
+        DrawMessage("Win", "{name} {number} {round}", m.Won, v => m.Won = v, () => Lines.Won(ann, 69, 3, m: m));
+        DrawMessage("Win, posted with the pick", "{name} {number} {round}", m.WonAndPicked, v => m.WonAndPicked = v, () => Lines.Won(ann, 69, 3, ask: false, m: m));
+        DrawMessage("Strip", "{name} {piece} {left}", m.Stripped, v => m.Stripped = v, () => Lines.Stripped(bo, Piece.Top, 2, m));
+        DrawMessage("Strip, out", "{name} {piece}", m.StrippedOut, v => m.StrippedOut = v, () => Lines.Stripped(bo, Piece.Shoes, 0, m));
+        DrawMessage("Game over", "{name}", m.GameOver, v => m.GameOver = v, () => Lines.GameOver(ann, m));
+        DrawMessage("Reminder, turn", "{name} {roll}", m.ReminderTurn, v => m.ReminderTurn = v, () => Lines.Reminder([ann], "/random 412", false, m));
+        DrawMessage("Reminder, opening", "{names} {roll}", m.ReminderOpening, v => m.ReminderOpening = v, () => Lines.Reminder([ann, bo], "/random", true, m));
+    }
+
+    /// <summary>One editable game line with its placeholders, a filled-in example (red when it could not be sent) and Default.</summary>
+    private void DrawMessage(string label, string keys, string value, Action<string> set, Func<string> example)
+    {
+        ImGui.TextUnformatted(label);
+        ImGui.SameLine();
+        ImGui.TextDisabled(keys);
+        ImGui.SetNextItemWidth(-ImGui.CalcTextSize("Default").X - 4 * ImGui.GetFrameHeight());
+        if (ImGui.InputText($"##{label}", ref value, 400)) set(value);
+        if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
+        ImGui.SameLine();
+        using (ImRaii.Disabled(value.Length == 0)) // blank already is the default
+            if (MaterialKos.Button($"Default##{label}", MaterialButton.Text, FontAwesomeIcon.Undo)) { set(""); plugin.SaveConfig(); }
+        var line = example();
+        if (Lines.IsSendable(line)) ImGui.TextDisabled($"e.g. {line}");
+        else ImGui.TextColored(ImGuiColors.DalamudRed, $"Would not be sent (starts with /, or too long): {line}");
     }
 
     private void DrawText(string label, string value, Action<string> set, string defaultValue)
@@ -268,9 +305,9 @@ public sealed partial class MainWindow : Window
         Kos.Section(label);
         if (ImGui.InputTextMultiline($"##{label}", ref value, 4000, new Vector2(-1, 110))) set(value);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
-        if (MaterialKos.Button($"Post {label.ToLowerInvariant()}", MaterialButton.Tonal)) plugin.PostText(value);
+        if (MaterialKos.Button($"Post {label.ToLowerInvariant()}", MaterialButton.Tonal, FontAwesomeIcon.Bullhorn)) plugin.PostText(value);
         ImGui.SameLine();
-        if (MaterialKos.Button($"Default##{label}", MaterialButton.Text)) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
+        if (MaterialKos.Button($"Default##{label}", MaterialButton.Text, FontAwesomeIcon.Undo)) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
     }
 
     private void DrawSettings()
@@ -284,10 +321,15 @@ public sealed partial class MainWindow : Window
         if (ImGui.SliderInt("Seconds of quiet", ref secs, Configuration.MinReminderSeconds, 120))
             config.ReminderSeconds = Math.Clamp(secs, Configuration.MinReminderSeconds, 120);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
-        ImGui.SetNextItemWidth(120);
-        if (Combo("Remind in", config.ReminderChannel, [TextChannel.Say, TextChannel.Party], c => c.ToString(), c => config.ReminderChannel = c)) plugin.SaveConfig();
-        ImGui.TextDisabled($"Posts \"Reminder: Name, it's your turn - roll ...\" (or lists everyone missing an opening roll) after that long\n" +
-            $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn, whether or not the call was posted. Not while a wrong roll waits for you.");
+        var onlyMe = config.ReminderOnlyMe;
+        if (MaterialKos.Switch("Only remind me (Echo, sends nothing)", ref onlyMe)) { config.ReminderOnlyMe = onlyMe; plugin.SaveConfig(); }
+        using (ImRaii.Disabled(config.ReminderOnlyMe))
+        {
+            ImGui.SetNextItemWidth(120);
+            if (Combo("Remind in", config.ReminderChannel, [TextChannel.Say, TextChannel.Party], c => c.ToString(), c => config.ReminderChannel = c)) plugin.SaveConfig();
+        }
+        ImGui.TextDisabled($"Posts the reminder line (Messages tab) after that long with no roll, at most {ReminderClock.MaxPerTurn} times per turn,\n" +
+            "whether or not the call was posted. Not while a wrong roll waits for you. Pause it from the Game tab.");
 
         Kos.Section("World markers", "02");
         var world = config.WorldMarkers;
@@ -309,7 +351,7 @@ public sealed partial class MainWindow : Window
             var move = plugin.MovingRings;
             if (MaterialKos.Switch("Move the rings", ref move)) plugin.MovingRings = move;
             ImGui.SameLine();
-            using (ImRaii.Disabled(!plugin.AnyRingPlaced)) { if (MaterialKos.Button("Rings follow the players", MaterialButton.Text)) plugin.ResetRings(); }
+            using (ImRaii.Disabled(!plugin.AnyRingPlaced)) { if (MaterialKos.Button("Rings follow the players", MaterialButton.Text, FontAwesomeIcon.Undo)) plugin.ResetRings(); }
             ImGui.TextDisabled("While on (and this window is open), drag the handle in a ring to put it where you want; right-click a\n" +
                 "handle to let that ring follow its player again. Placed rings stay put until you change zone.");
             ImGui.TextDisabled("Pillars of light: crimson, tall, with the number to roll: whoever is up. White: next. Gold, tall: won the round.\n" +
