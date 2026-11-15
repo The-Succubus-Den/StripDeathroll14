@@ -123,10 +123,16 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Pick(Player target, Piece piece)
     {
+        var won = Game.Winner is { } w ? Lines.Won(w.Name, Game.WinningRoll, Game.Round) : null;
         if (!Game.Pick(target, piece)) return;
-        Propose(Lines.Stripped(target.Name, piece, target.Lives));
-        if (Game.Phase == Phase.GameOver) Propose(Lines.GameOver(Game.Active.First().Name));
-        else CallCurrent();
+
+        // One event, one batch: the win (if not posted yet), who lost what, then the game-over line or the next call.
+        var lines = new List<string>();
+        if (won is not null && Proposed.Contains(won)) lines.Add(won);
+        lines.Add(Lines.Stripped(target.Name, piece, target.Lives));
+        if (Game.Phase == Phase.GameOver) lines.Add(Lines.GameOver(Game.Active.First().Name));
+        else if (Game.Current is { } p) lines.Add(Lines.Call(p.Name, RollCommand(Game.Limit)));
+        Propose([.. lines]);
     }
 
     public void AcceptPending() => Handle(Game.AcceptPending());
@@ -218,10 +224,12 @@ public sealed class Plugin : IDalamudPlugin
 
     // ---- chat and tick ----
 
-    private void Propose(string line)
+    // Each call replaces what waits for Post (an older call is stale), but the lines of one event stay together.
+    private void Propose(params string[] lines)
     {
-        if (Config.AutoPost) Enqueue(CallPrefix, line, false);
-        else { Proposed.Clear(); Proposed.Add(line); } // only the latest line waits for Post; older ones are stale
+        if (Config.AutoPost) { foreach (var line in lines) Enqueue(CallPrefix, line, false); return; }
+        Proposed.Clear();
+        Proposed.AddRange(lines);
     }
 
     private void Enqueue(string prefix, string line, bool freeText)
