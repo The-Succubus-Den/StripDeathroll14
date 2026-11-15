@@ -72,12 +72,15 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 - **Circle / List** — how the Game tab shows the players (Circle by default).
 - **Rules & Ad** — the two texts and the channel they go to (Say, Yell, Party).
 - **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), Say or Party.
-- **Debug mode** (Settings tab) — session only, never saved.
+- **Accent** (Settings tab) — Dalamud style (the default, pushes no colours) or one of five accent presets (Teal, Violet, Amber, Crimson, Ocean) for this window's buttons, tabs, checkboxes and sliders. Your Dalamud theme's background and text are never changed.
+- **Debug mode** (Settings tab) — session only, never saved. While it is on, the Settings tab also shows the KosLib gallery (every card, badge and accent preset).
 
 ## Build
 
 Requires the .NET 10 SDK and the Dalamud dev distribution
-(`%APPDATA%\XIVLauncher\addon\Hooks\dev`, or `DALAMUD_HOME`).
+(`%APPDATA%\XIVLauncher\addon\Hooks\dev`, or `DALAMUD_HOME`). The shared UI pieces come from the
+[KosLib](https://github.com/priestkos/KosLib) submodule, so clone with `git clone --recurse-submodules`
+(or run `git submodule update --init` in an existing clone).
 
 ```
 dotnet build -c Debug      # load bin/Debug/StripDeathroll14.dll as a dev plugin
@@ -99,7 +102,7 @@ Add `https://raw.githubusercontent.com/priestkos/PlogonYes/main/pluginmaster.jso
 `StripDeathroll14.Tests` (xUnit) compiles `Game.cs` with no Dalamud and covers the roll parsers, name matching (party-slot and cross-world glyphs), name validation, the highest opening roll starting without reordering the list, later rounds resuming after the winner (out players skipped), ties, the starter's fresh `/random`, wrong-number and out-of-turn rolls, the 0/1/69/666 endings, picking a piece (and the winner picking themselves), three pieces to out and game over, the per-round roll log and its notes, dummy players, the reminder's waiting list and clock (interval, reset on progress, cap of 3), removing and moving players mid-round, the posted lines and commands, pinned enum numbers, and a 2,000-game random-play sweep that asserts every game finishes.
 
 ```
-dotnet test StripDeathroll14.Tests    # 36 tests
+dotnet test StripDeathroll14.Tests    # 46 tests
 ```
 
 ## Limits
@@ -122,6 +125,7 @@ Game.cs            pure rules: players, opening, turns, endings, piece picks, hi
 Plugin.cs          chat reading, the send queue, party and target import, alerts, reminders, debug rolls
 MainWindow.cs      Game / History / Rules & Ad / Settings tabs
 Configuration.cs   saved settings and texts
+KosLib/            submodule: shared card, badge and accent presets (github.com/priestkos/KosLib), compiled in from KosLib/src
 StripDeathroll14.Tests/   xUnit tests over Game.cs
 docs/              mock-up screenshots and walkthrough video
 images/            icon.svg (source) and icon.png (manifest icon)

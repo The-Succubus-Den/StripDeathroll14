@@ -1,4 +1,5 @@
 using Dalamud.Configuration;
+using KosLib;
 
 namespace StripDeathroll14;
 
@@ -25,6 +26,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Game tab shows the players seated round a circle (drag to reseat) instead of the table.</summary>
     public bool CircleView { get; set; } = true;
 
+    /// <summary>Window accent preset; Dalamud style (the default) pushes no colours.</summary>
+    public KosAccent Accent { get; set; } = KosAccent.Dalamud;
+
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;
@@ -44,6 +48,7 @@ public sealed class Configuration : IPluginConfiguration
         if (!Enum.IsDefined(Venue)) Venue = Venue.Private;
         if (!Enum.IsDefined(TextChannel)) TextChannel = TextChannel.Say;
         if (!Enum.IsDefined(CallChannel)) CallChannel = CallChannel.Venue;
+        if (!Enum.IsDefined(Accent)) Accent = KosAccent.Dalamud;
         if (ReminderChannel is not (TextChannel.Say or TextChannel.Party)) ReminderChannel = TextChannel.Say;
         ReminderSeconds = Math.Clamp(ReminderSeconds, MinReminderSeconds, 120);
         SendMinSeconds = Math.Clamp(SendMinSeconds, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000);

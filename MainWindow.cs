@@ -5,6 +5,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using KosLib;
 
 namespace StripDeathroll14;
 
@@ -26,6 +27,7 @@ public sealed partial class MainWindow : Window
 
     public override void Draw()
     {
+        using var accent = KosTheme.Push(plugin.Config.Accent); // scoped to this window; Dalamud style pushes nothing
         using var bar = ImRaii.TabBar("##tabs");
         if (!bar) return;
         using (var t = ImRaii.TabItem("Game")) if (t) DrawGame();
@@ -41,7 +43,7 @@ public sealed partial class MainWindow : Window
 
         if (plugin.DebugMode)
         {
-            Badge("Debug", ImGuiColors.DalamudOrange);
+            Kos.Badge("Debug", ImGuiColors.DalamudOrange);
             ImGui.SameLine();
             ImGui.TextColored(ImGuiColors.DalamudOrange, "Posts go to Echo only, never to chat.");
         }
@@ -71,9 +73,9 @@ public sealed partial class MainWindow : Window
 
         ImGui.Spacing();
         var phaseColor = PhaseColor(game.Phase);
-        Card("status", phaseColor, () =>
+        Kos.Card("status", phaseColor, () =>
         {
-            Badge(PhaseLabel(game), phaseColor);
+            Kos.Badge(PhaseLabel(game), phaseColor);
             ImGui.SameLine();
             ImGui.TextUnformatted(Status(game));
             if (plugin.ReminderSecondsLeft is { } left)
@@ -174,7 +176,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        Card("proposed", ImGuiColors.TankBlue, () =>
+        Kos.Card("proposed", ImGuiColors.TankBlue, () =>
         {
             ImGui.TextUnformatted($"To post in {plugin.CallPrefix}:");
             foreach (var line in plugin.Proposed) ImGui.BulletText(line);
@@ -343,12 +345,19 @@ public sealed partial class MainWindow : Window
             $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn, whether or not the call was posted. Not while a wrong roll waits for you.");
 
         ImGui.Separator();
+        ImGui.TextUnformatted("Look");
+        ImGui.SetNextItemWidth(200);
+        if (Combo("Accent", config.Accent, Enum.GetValues<KosAccent>(), KosTheme.Label, a => config.Accent = a)) plugin.SaveConfig();
+        ImGui.TextDisabled("Colours this window's buttons, tabs, checkboxes and sliders. Dalamud style keeps your own theme untouched.");
+
+        ImGui.Separator();
         ImGui.TextUnformatted("Debug");
         var debug = plugin.DebugMode;
         if (ImGui.Checkbox("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
         ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +
             "While it is on, calls, results, reminders and the rules/ad print to Echo instead of chat; Roll for me still rolls.\n" +
             "Turning it off removes the dummies.");
+        if (plugin.DebugMode && ImGui.CollapsingHeader("KosLib gallery")) KosGallery.Draw();
     }
 
     private static bool Combo<T>(string label, T current, IEnumerable<T> values, Func<T, string> name, Action<T> set) where T : struct, Enum

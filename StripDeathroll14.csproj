@@ -10,6 +10,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="StripDeathroll14.Tests/**" />
+    <!-- KosLib submodule: compile its sources only, never its tests or nested obj/ -->
+    <Compile Remove="KosLib/**" />
+    <Compile Include="KosLib/src/**/*.cs" />
   </ItemGroup>
   <PropertyGroup>
     <Author>PriestKos</Author>
