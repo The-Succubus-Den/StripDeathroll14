@@ -551,21 +551,20 @@ public class GameTests
     }
 
     [Fact]
-    public void OutboxSendsOneLineAtATimeOneToThreeSecondsApart()
+    public void OutboxSendsOneLineAtATimeTwoToFiveSecondsApart()
     {
         var o = new Outbox();
         Assert.True(o.Add(null, "/random 500", false));
         Assert.True(o.Add("/s", "Ann Lee, roll /random 500", false));
-        Assert.Equal("/random 500", o.Take(0, 1)?.Text);          // a gap below 1 s is raised to 1 s
-        Assert.Null(o.Take(999, 2000));
-        Assert.Equal("Ann Lee, roll /random 500", o.Take(1000, 9999)?.Text); // above 3 s is lowered to 3 s
         Assert.True(o.Add(null, "/random", false));
-        Assert.Null(o.Take(3999, 2000));
-        Assert.NotNull(o.Take(4000, 2000));
-        var rng = new Random(1);
-        var gaps = Enumerable.Range(0, 5000).Select(_ => Outbox.Gap(rng)).ToList();
-        Assert.Equal(Outbox.MinGapMs, gaps.Min());
-        Assert.Equal(Outbox.MaxGapMs, gaps.Max());
+        Assert.True(o.Add(null, "/random 9", false));
+        Assert.Equal("/random 500", o.Take(0, 1)?.Text);          // a gap below 2 s is raised to 2 s
+        Assert.Null(o.Take(1999, 3000));
+        Assert.Equal("Ann Lee, roll /random 500", o.Take(2000, 9999)?.Text); // above 5 s is lowered to 5 s
+        Assert.Null(o.Take(6999, 3000));
+        Assert.Equal("/random", o.Take(7000, 3000)?.Text);        // the picked gap is used as is
+        Assert.Null(o.Take(9999, 3000));
+        Assert.NotNull(o.Take(10000, 3000));
     }
 
     [Fact]

@@ -460,12 +460,12 @@ public static class Lines
 }
 
 /// <summary>
-/// Every line the plugin sends (rolls, calls, reminders, rules/ad) waits here: one at a time, 1-3 s apart,
+/// Every line the plugin sends (rolls, calls, reminders, rules/ad) waits here: one at a time, 2-5 s apart (the host picks),
 /// a line already waiting is not added twice, and the queue is capped so nothing can pile up into spam.
 /// </summary>
 public sealed class Outbox
 {
-    public const int MinGapMs = 1000, MaxGapMs = 3000;
+    public const int MinGapMs = 2000, MaxGapMs = 5000;
     public const int MaxWaiting = Lines.MaxTextLines + 2; // a full rules post plus a call and a roll
 
     private readonly Queue<(string? Prefix, string Text, bool FreeText)> waiting = new();
@@ -489,8 +489,6 @@ public sealed class Outbox
         nextAt = now + Math.Clamp(gapMs, MinGapMs, MaxGapMs);
         return waiting.Dequeue();
     }
-
-    public static int Gap(Random rng) => rng.Next(MinGapMs, MaxGapMs + 1);
 
     public void Clear() => waiting.Clear();
 }
