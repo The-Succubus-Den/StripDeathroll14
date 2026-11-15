@@ -52,7 +52,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 
 ## How it works
 
-Rolls are read from chat (`IChatGui.ChatMessage`, nothing is hidden): `RandomNumber` lines in the form `Random! Name rolls a N (out of M).` and `/dice` lines `Random! (1-M) N` in whichever channel `/dice` was sent to (Say, Yell, Shout, Party, Cross-world Party, Alliance, Free Company, PvP Team, Linkshells 1–8, Cross-world Linkshells 1–8), with the roller taken from the player link in the message or the line's sender. The formats are the ones ChatDeathRoll2 and FFXIVGamblePyon both parse. A roll only counts for someone on the list, so spectators rolling nearby change nothing.
+Rolls are read from chat (`IChatGui.ChatMessage`, nothing is hidden): `RandomNumber` lines in the form `Random! Name rolls a N (out of M).` and `/dice` lines `Random! (1-M) N` in Party, Cross-world Party and Alliance, with the roller taken from the player link in the message. The formats are the ones ChatDeathRoll2 and FFXIVGamblePyon both parse. A roll only counts for someone on the list, so spectators rolling nearby change nothing.
 
 Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntry` (no hooks, no signatures of its own), one at a time, 1 to 3 s apart (random), only while logged in. Roll commands, calls, reminders and rules/ad lines all share it, so they can never be sent closer together; at most 12 lines can wait, and a line that is already waiting is not queued again. Lines the plugin writes are checked to be one line, under 400 bytes and not a command; rules and ad lines are also run through the game's own text sanitiser and dropped, never altered, if it would change them. Player names are validated before they are used in a line.
 

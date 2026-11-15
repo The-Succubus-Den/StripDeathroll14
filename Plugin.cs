@@ -250,16 +250,6 @@ public sealed class Plugin : IDalamudPlugin
         chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {text}" });
     }
 
-    // /dice posts to the channel it names (party, alliance, fc, pvpteam, l1-8, cwl1-8) or, with none, the current chat mode.
-    private static readonly HashSet<XivChatType> DiceChannels =
-    [
-        XivChatType.Say, XivChatType.Yell, XivChatType.Shout,
-        XivChatType.Party, XivChatType.CrossParty, XivChatType.Alliance, XivChatType.FreeCompany, XivChatType.PvPTeam,
-        XivChatType.Ls1, XivChatType.Ls2, XivChatType.Ls3, XivChatType.Ls4, XivChatType.Ls5, XivChatType.Ls6, XivChatType.Ls7, XivChatType.Ls8,
-        XivChatType.CrossLinkShell1, XivChatType.CrossLinkShell2, XivChatType.CrossLinkShell3, XivChatType.CrossLinkShell4,
-        XivChatType.CrossLinkShell5, XivChatType.CrossLinkShell6, XivChatType.CrossLinkShell7, XivChatType.CrossLinkShell8,
-    ];
-
     private void OnChatMessage(IHandleableChatMessage message)
     {
         ParsedRoll? roll;
@@ -269,7 +259,7 @@ public sealed class Plugin : IDalamudPlugin
             roll = Rolls.ParseRandom(message.Message.TextValue);
             name = roll is null ? null : roll.Value.Name is null ? MyName : PlayerName(message.Message) ?? roll.Value.Name;
         }
-        else if (DiceChannels.Contains(message.LogKind))
+        else if (message.LogKind == XivChatType.Party || message.LogKind == XivChatType.CrossParty || message.LogKind == XivChatType.Alliance)
         {
             roll = Rolls.ParseDice(message.Message.TextValue);
             name = roll is null ? null : PlayerName(message.Sender) ?? message.Sender.TextValue;
