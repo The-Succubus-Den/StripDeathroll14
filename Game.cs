@@ -98,7 +98,7 @@ public sealed class DeathrollGame
     public Phase Phase { get; private set; } = Phase.Setup;
     public int Round { get; private set; }
     public Player? Current { get; private set; }
-    /// <summary>The highest opening roll this round; they started the turns. Highlighted, the list is never reordered.</summary>
+    /// <summary>Who started the turns this round: the highest opening roll, or the player after last round's winner. Highlighted, the list is never reordered.</summary>
     public Player? Starter { get; private set; }
     /// <summary>The number the current player rolls to; null = a fresh /random (the player starting the turns).</summary>
     public int? Limit { get; private set; }
@@ -238,8 +238,13 @@ public sealed class DeathrollGame
         target.Worn.Remove(piece);
         History.Add(new RoundRecord(Round, Winner.Name, WinningRoll, target.Name, piece, target.Lives));
         if (Active.Count() <= 1) { Phase = Phase.GameOver; return true; }
+        var from = Winner;
         Phase = Phase.Setup;
         StartRound();
+        // Round 2 on: no opening roll; the next player in the list after the winner starts with a fresh /random.
+        Starter = Current = NextActive(from);
+        turnSerial++;
+        Phase = Phase.Turns;
         return true;
     }
 

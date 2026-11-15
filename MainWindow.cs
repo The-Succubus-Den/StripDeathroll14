@@ -54,7 +54,7 @@ public sealed class MainWindow : Window
         ImGui.Separator();
         ImGui.TextUnformatted(Status(game));
         if (game.Phase == Phase.Turns && game.Starter is { } top)
-            ImGui.TextColored(ImGuiColors.DalamudYellow, $"Highest opening: {top.Name} ({top.Opening}).");
+            ImGui.TextColored(ImGuiColors.DalamudYellow, top.Opening is { } o ? $"Highest opening: {top.Name} ({o})." : $"Started by {top.Name} (next after last round's winner).");
         if (plugin.LastAlert is { } alert) ImGui.TextColored(ImGuiColors.DalamudRed, alert);
 
         if (game.Pending is { } pending && pending.Player == game.Current)
@@ -185,7 +185,7 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(p == game.Current ? ">" : (i + 1).ToString());
             ImGui.TableNextColumn();
-            var label = p.Name + (p == game.Current ? "  (next to roll)" : top ? "  (highest)" : "") + (p.IsDummy ? "  [dummy]" : "");
+            var label = p.Name + (p == game.Current ? "  (next to roll)" : top ? (p.Opening is null ? "  (started)" : "  (highest)") : "") + (p.IsDummy ? "  [dummy]" : "");
             if (p.Out) ImGui.TextDisabled($"{p.Name} (out)");
             else if (p == game.Current) ImGui.TextColored(ImGuiColors.HealerGreen, label);
             else if (top) ImGui.TextColored(ImGuiColors.DalamudYellow, label);

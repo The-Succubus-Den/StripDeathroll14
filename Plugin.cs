@@ -127,7 +127,7 @@ public sealed class Plugin : IDalamudPlugin
         if (!Game.Pick(target, piece)) return;
         Propose(Lines.Stripped(target.Name, piece, target.Lives));
         if (Game.Phase == Phase.GameOver) Propose(Lines.GameOver(Game.Active.First().Name));
-        else if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null)));
+        else CallCurrent();
     }
 
     public void AcceptPending() => Handle(Game.AcceptPending());

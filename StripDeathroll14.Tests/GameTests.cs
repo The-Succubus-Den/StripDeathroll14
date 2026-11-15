@@ -190,8 +190,11 @@ public class GameTests
         Assert.Equal(2, P(g, "Bo Ray").Lives);
         Assert.Equal(1, P(g, "Ann Lee").Wins);
         Assert.Equal(new RoundRecord(1, "Ann Lee", ending, "Bo Ray", Piece.Shoes, 2), g.History.Single());
-        Assert.Equal(Phase.Opening, g.Phase); // next round starts with the opening roll
+        Assert.Equal(Phase.Turns, g.Phase); // next round resumes with the player after the winner, no opening roll
         Assert.Equal(2, g.Round);
+        Assert.Equal("Bo Ray", g.Current!.Name);
+        Assert.Equal(g.Current, g.Starter);
+        Assert.Null(g.Limit); // fresh /random
     }
 
     [Fact]
@@ -200,7 +203,7 @@ public class GameTests
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
         for (var i = 0; i < 3; i++) WinRound(g, "Ann Lee", "Bo Ray");
         Assert.True(P(g, "Bo Ray").Out);
-        Assert.Equal(Phase.Opening, g.Phase);
+        Assert.Equal(Phase.Turns, g.Phase);
         Assert.Equal(2, g.Active.Count());
         Assert.Equal(RollOutcome.Ignored, g.OnRoll(P(g, "Bo Ray"), 5, null)); // out players are ignored
         for (var i = 0; i < 3; i++) WinRound(g, "Ann Lee", "Cy Dee");
@@ -219,6 +222,7 @@ public class GameTests
     {
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
         for (var i = 0; i < 3; i++) WinRound(g, "Ann Lee", "Bo Ray");
+        g.StartRound(); // host restart with an opening roll
         g.OnRoll(P(g, "Ann Lee"), 900, null);
         g.OnRoll(P(g, "Cy Dee"), 100, null);
         Assert.Equal("Ann Lee", g.Current!.Name);
@@ -281,9 +285,9 @@ public class GameTests
         Assert.Equal(new RoundRecord(1, "Ann Lee", 69, "Ann Lee", Piece.Bottom, 2), g.History.Single());
         Assert.Equal(1, P(g, "Ann Lee").Wins);
 
-        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        Assert.Equal("Bo Ray", g.Current!.Name); // round 2 resumes after the winner
         g.OnRoll(P(g, "Bo Ray"), 5, null);
-        g.OnRoll(P(g, "Ann Lee"), 1, null);
+        g.OnRoll(P(g, "Ann Lee"), 1, 5);
         Assert.False(g.Pick(P(g, "Ann Lee"), Piece.Bottom)); // already off
         Assert.Equal(Phase.Pick, g.Phase);
     }
@@ -465,9 +469,35 @@ public class GameTests
         return g;
     }
 
+    [Fact]
+    public void LaterRoundsResumeAfterTheWinnerSkippingOutPlayers()
+    {
+        var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 100, null);
+        g.OnRoll(P(g, "Bo Ray"), 900, null);
+        g.OnRoll(P(g, "Cy Dee"), 200, null);
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Bo Ray"), 1, null)); // Bo starts and wins at once
+        Assert.True(g.Pick(P(g, "Ann Lee")));
+        Assert.Equal("Cy Dee", g.Current!.Name);                          // next after Bo
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Cy Dee"), 69, null));
+        Assert.True(g.Pick(P(g, "Ann Lee")));
+        Assert.Equal("Ann Lee", g.Current!.Name);                         // wraps round
+        Assert.False(g.Pick(P(g, "Ann Lee")));                             // turns, not pick
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Ann Lee"), 1, null));
+        Assert.True(g.Pick(P(g, "Bo Ray")));
+        Assert.Equal("Bo Ray", g.Current!.Name);
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Bo Ray"), 1, null));
+        Assert.True(g.Pick(P(g, "Cy Dee")));
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Cy Dee"), 1, null));
+        Assert.True(g.Pick(P(g, "Ann Lee")));                              // Ann's last piece: out
+        Assert.True(P(g, "Ann Lee").Out);
+        Assert.Equal("Bo Ray", g.Current!.Name);                          // after Cy, Ann is skipped
+    }
+
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
-        if (g.Phase == Phase.Setup) g.StartRound();
+        if (g.Phase != Phase.Opening) g.StartRound();
         foreach (var p in g.Active.ToList()) g.OnRoll(p, p.Name == winner ? 999 : 10, null);
         Assert.Equal(winner, g.Current!.Name);
         Assert.Equal(RollOutcome.Won, g.OnRoll(g.Current, 1, g.Limit));
@@ -476,7 +506,7 @@ public class GameTests
 
     private static void WinRoundNoPick(DeathrollGame g, string winner)
     {
-        if (g.Phase == Phase.Setup) g.StartRound();
+        if (g.Phase != Phase.Opening) g.StartRound();
         foreach (var p in g.Active.ToList()) g.OnRoll(p, p.Name == winner ? 999 : 10, null);
         Assert.Equal(RollOutcome.Won, g.OnRoll(g.Current, 1, g.Limit));
     }
