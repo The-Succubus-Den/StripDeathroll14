@@ -53,6 +53,11 @@ public sealed class MainWindow : Window
 
         ImGui.Separator();
         ImGui.TextUnformatted(Status(game));
+        if (plugin.ReminderSecondsLeft is { } left)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled($"Reminder in {left} s ({ReminderClock.MaxPerTurn - plugin.RemindersSent} left).");
+        }
         if (game.Phase == Phase.Turns && game.Starter is { } top)
             ImGui.TextColored(ImGuiColors.DalamudYellow, top.Opening is { } o ? $"Highest opening: {top.Name} ({o})." : $"Started by {top.Name} (next after last round's winner).");
         if (plugin.LastAlert is { } alert) ImGui.TextColored(ImGuiColors.DalamudRed, alert);

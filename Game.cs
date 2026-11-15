@@ -309,6 +309,9 @@ public sealed class ReminderClock
 
     public int Sent { get; private set; }
 
+    /// <summary>Whole seconds (rounded up) until the next reminder; null when none is coming.</summary>
+    public int? SecondsLeft(long now) => key is null || Sent >= MaxPerTurn ? null : (int)Math.Max(0, (dueAt - now + 999) / 1000);
+
     public bool Due(string? stateKey, long now, int intervalMs)
     {
         if (stateKey != key)

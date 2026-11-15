@@ -350,7 +350,10 @@ public class GameTests
         g.StartRound();
         Assert.Equal(["Ann Lee", "Bo Ray", "Cy Dee"], g.Waiting.Select(p => p.Name));
         var clock = new ReminderClock();
+        Assert.Null(clock.SecondsLeft(0));                     // no wait yet
         Assert.False(clock.Due(g.WaitingKey, 0, 30_000));      // starts the wait
+        Assert.Equal(30, clock.SecondsLeft(0));
+        Assert.Equal(1, clock.SecondsLeft(29_500));            // rounded up: never shows 0 before it fires
         Assert.False(clock.Due(g.WaitingKey, 29_999, 30_000));
         Assert.True(clock.Due(g.WaitingKey, 30_000, 30_000));
         Assert.False(clock.Due(g.WaitingKey, 30_001, 30_000)); // not again straight away
@@ -361,6 +364,7 @@ public class GameTests
         Assert.True(clock.Due(g.WaitingKey, 100_000, 30_000));
         Assert.True(clock.Due(g.WaitingKey, 130_000, 30_000));
         Assert.False(clock.Due(g.WaitingKey, 999_000, 30_000)); // capped at MaxPerTurn
+        Assert.Null(clock.SecondsLeft(999_000));                // nothing more coming
         g.OnRoll(P(g, "Bo Ray"), 900, null);
         g.OnRoll(P(g, "Cy Dee"), 20, null);
         Assert.Equal(["Bo Ray"], g.Waiting.Select(p => p.Name));

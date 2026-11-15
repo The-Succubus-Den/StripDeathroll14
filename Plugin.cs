@@ -49,6 +49,8 @@ public sealed class Plugin : IDalamudPlugin
 
     public string? LastAlert { get; private set; }
     public int Queued => outbox.Count;
+    public int RemindersSent => reminder.Sent;
+    public int? ReminderSecondsLeft => reminder.SecondsLeft(Environment.TickCount64);
 
     /// <summary>Session only: dummy players, and every post goes to Echo instead of chat.</summary>
     public bool DebugMode { get; private set; }
