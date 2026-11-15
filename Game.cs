@@ -37,7 +37,7 @@ public enum Piece
 public enum Phase { Setup, Opening, Turns, Pick, GameOver }
 
 /// <summary>What the world overlay draws under a player.</summary>
-public enum Marker { None, Seated, Opening, Turn, Starter, Winner }
+public enum Marker { None, Seated, Opening, Turn, Starter, Winner, Next }
 
 public enum RollOutcome
 {
@@ -134,7 +134,7 @@ public sealed class DeathrollGame
     public Marker MarkerFor(Player p) => p.Out ? Marker.None : Phase switch
     {
         Phase.Opening => p.Opening is null ? Marker.Opening : Marker.Seated,
-        Phase.Turns => p == Current ? Marker.Turn : p == Starter ? Marker.Starter : Marker.Seated,
+        Phase.Turns => p == Current ? Marker.Turn : Current is not null && p == NextActive(Current) ? Marker.Next : p == Starter ? Marker.Starter : Marker.Seated,
         Phase.Pick or Phase.GameOver => p == Winner ? Marker.Winner : Marker.Seated,
         _ => Marker.Seated,
     };

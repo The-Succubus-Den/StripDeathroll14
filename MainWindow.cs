@@ -131,12 +131,8 @@ public sealed partial class MainWindow : Window
         DrawProposed();
         Kos.Section("Players");
         DrawAddPlayers(game);
-        var view = config.CircleView ? 0 : 1;
-        if (Kos.Segmented("view", ref view, "Circle", "List")) { config.CircleView = view == 0; plugin.SaveConfig(); }
-        ImGui.SameLine();
-        ImGui.TextDisabled(config.CircleView ? "Clockwise from the top. Drag a seat to move it; right-click for more." : "Turn order runs down the list.");
-        if (config.CircleView) DrawCircle(game);
-        else DrawPlayers(game);
+        ImGui.TextDisabled("Clockwise from the top. Drag a seat to move it; right-click for more.");
+        DrawCircle(game);
     }
 
     private void DrawPick(DeathrollGame game)
@@ -218,66 +214,6 @@ public sealed partial class MainWindow : Window
         }
 
         if (addNote.Length > 0) ImGui.TextDisabled(addNote);
-    }
-
-    private void DrawPlayers(DeathrollGame game)
-    {
-        using var table = ImRaii.Table("##players", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.ScrollY);
-        if (!table) return;
-        ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 22);
-        ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Last roll", ImGuiTableColumnFlags.WidthFixed, 58);
-        ImGui.TableSetupColumn("Wearing", ImGuiTableColumnFlags.WidthFixed, 130);
-        ImGui.TableSetupColumn("Wins", ImGuiTableColumnFlags.WidthFixed, 36);
-        ImGui.TableSetupColumn("##edit", ImGuiTableColumnFlags.WidthFixed, plugin.DebugMode ? 150 : 88);
-        ImGui.TableHeadersRow();
-
-        Action? edit = null; // applied after the loop so the list is not changed while it is drawn
-        for (var i = 0; i < game.Players.Count; i++)
-        {
-            var p = game.Players[i];
-            var top = p == game.Starter;
-            using var id = ImRaii.PushId(i);
-            ImGui.TableNextRow();
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(p == game.Current ? ">" : (i + 1).ToString());
-            ImGui.TableNextColumn();
-            var label = p.Name + (p == game.Current ? "  (next to roll)" : top ? (p.Opening is null ? "  (started)" : "  (highest)") : "") + (p.IsDummy ? "  [dummy]" : "");
-            if (p.Out) ImGui.TextDisabled($"{p.Name} (out)");
-            else if (p == game.Current) ImGui.TextColored(ImGuiColors.HealerGreen, label);
-            else if (top) ImGui.TextColored(ImGuiColors.DalamudYellow, label);
-            else ImGui.TextUnformatted(label);
-            ImGui.TableNextColumn();
-            var last = game.LastRoll(p);
-            var lastText = last?.Value.ToString() ?? "-";
-            if (last is { } lr && DeathrollGame.NotCounted(lr.Note)) ImGui.TextDisabled(lastText);
-            else if (top) ImGui.TextColored(ImGuiColors.DalamudYellow, lastText);
-            else ImGui.TextUnformatted(lastText);
-            if (last is { } l && ImGui.IsItemHovered()) ImGui.SetTooltip($"Round {l.Round}: {l.Value} out of {l.Max ?? DeathrollGame.OpeningMax} ({NoteLabel(l.Note)})");
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(Worn(p));
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(p.Wins.ToString());
-            ImGui.TableNextColumn();
-            if (ImGui.SmallButton("Up")) edit = () => game.Move(p, -1);
-            ImGui.SameLine();
-            if (ImGui.SmallButton("Dn")) edit = () => game.Move(p, 1);
-            ImGui.SameLine();
-            if (ImGui.SmallButton("X") && ImGui.GetIO().KeyCtrl) edit = () => game.Remove(p);
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click to remove.");
-            if (plugin.DebugMode && p.IsDummy && !p.Out)
-            {
-                ImGui.SameLine();
-                if (ImGui.SmallButton("Roll")) edit = () => plugin.SimulateRoll(p, false);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Roll for this dummy (a fresh /random or up to the current number).");
-                ImGui.SameLine();
-                if (ImGui.SmallButton("1")) edit = () => plugin.SimulateRoll(p, true);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Make this dummy roll a 1.");
-            }
-        }
-
-        edit?.Invoke();
     }
 
     private void DrawHistory()
@@ -364,8 +300,14 @@ public sealed partial class MainWindow : Window
             Kos.HelpMarker("ImGui: drawn over everything, so the rings show through walls and other players.\n" +
                 "GPU: KosDraw's Direct3D path. Rings fade behind scenery and stay off the game's own UI.\n" +
                 "If a GPU part fails it switches itself off and ImGui draws that part instead.");
-            ImGui.TextDisabled("Crimson ring and the number to roll: whoever is up. Gold: owes an opening roll, started the turns\n" +
-                "(dot overhead) or won the round. Thin ring: everyone else. Players who are out get none.");
+            var move = plugin.MovingRings;
+            if (MaterialKos.Switch("Move the rings", ref move)) plugin.MovingRings = move;
+            ImGui.SameLine();
+            using (ImRaii.Disabled(!plugin.AnyRingPlaced)) { if (MaterialKos.Button("Rings follow the players", MaterialButton.Text)) plugin.ResetRings(); }
+            ImGui.TextDisabled("While on (and this window is open), drag the handle in a ring to put it where you want; right-click a\n" +
+                "handle to let that ring follow its player again. Placed rings stay put until you change zone.");
+            ImGui.TextDisabled("Pillars of light: crimson, tall, with the number to roll: whoever is up. White: next. Gold, tall: won the round.\n" +
+                "Gold, short: started the turns. Gold ring: owes an opening roll. Thin ring: everyone else. Out: nothing.");
             ImGui.TextDisabled(plugin.WorldStatus);
         }
 

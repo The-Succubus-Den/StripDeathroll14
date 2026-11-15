@@ -5,6 +5,9 @@ using Dalamud.Game.Command;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -33,8 +36,10 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IPartyList partyList;
     private readonly ITargetManager targetManager;
     private readonly IObjectTable objects;
+    private readonly IGameGui gameGui;
     private readonly KosOverlay overlay;
     private readonly List<(Player Player, Vector3 At)> seen = []; // filled on the framework thread, drawn in Draw
+    private readonly Dictionary<Player, Vector3> spots = []; // rings placed by hand; both threads are the main thread
     private readonly ReminderClock reminder = new();
     private readonly WindowSystem windowSystem = new("StripDeathroll14");
     private readonly MainWindow window;
@@ -67,6 +72,7 @@ public sealed class Plugin : IDalamudPlugin
         IPartyList partyList,
         ITargetManager targetManager,
         IObjectTable objects,
+        IGameGui gameGui,
         IPluginLog log)
     {
         this.pluginInterface = pluginInterface;
@@ -78,6 +84,7 @@ public sealed class Plugin : IDalamudPlugin
         this.partyList = partyList;
         this.targetManager = targetManager;
         this.objects = objects;
+        this.gameGui = gameGui;
         overlay = new KosOverlay(pluginInterface.UiBuilder, log); // the GPU path is created lazily, only if switched on
 
         Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -92,6 +99,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.OpenConfigUi += window.Toggle;
         chatGui.ChatMessage += OnChatMessage;
         clientState.Logout += OnLogout;
+        clientState.TerritoryChanged += OnTerritoryChanged;
         framework.Update += OnUpdate;
 
         commandManager.AddHandler(CommandName, new CommandInfo((_, args) =>
@@ -109,6 +117,7 @@ public sealed class Plugin : IDalamudPlugin
         commandManager.RemoveHandler(CommandName);
         framework.Update -= OnUpdate;
         clientState.Logout -= OnLogout;
+        clientState.TerritoryChanged -= OnTerritoryChanged;
         chatGui.ChatMessage -= OnChatMessage;
         pluginInterface.UiBuilder.OpenConfigUi -= window.Toggle;
         pluginInterface.UiBuilder.OpenMainUi -= window.Toggle;
@@ -341,7 +350,15 @@ public sealed class Plugin : IDalamudPlugin
     {
         outbox.Clear();
         Proposed.Clear();
+        ResetRings();
     }
+
+    private void OnTerritoryChanged(uint _) => ResetRings(); // placed spots belong to the zone they were placed in
+
+    /// <summary>Session only: a drag handle sits in each ring, while the main window is open.</summary>
+    public bool MovingRings { get; set; }
+    public bool AnyRingPlaced => spots.Count > 0;
+    public void ResetRings() => spots.Clear();
 
     private void OnDraw()
     {
@@ -349,6 +366,47 @@ public sealed class Plugin : IDalamudPlugin
         if (!Config.WorldMarkers || seen.Count == 0) return;
         overlay.UseGpu = Config.WorldMarkersGpu;
         overlay.Draw(s => WorldMarkers.Build(s, Game, seen));
+        if (MovingRings && window.IsOpen) DrawRingHandles();
+    }
+
+    /// <summary>
+    /// A small handle window in the middle of each ring: drag it to put the ring on the ground under the mouse,
+    /// right-click it to let the ring follow its player again. Only the handles take the mouse; the rest reaches the game.
+    /// </summary>
+    private void DrawRingHandles()
+    {
+        var r = 14 * ImGuiHelpers.GlobalScale;
+        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoDocking;
+        using var pad = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        using var min = ImRaii.PushStyle(ImGuiStyleVar.WindowMinSize, Vector2.One);
+        foreach (var (p, at) in seen)
+        {
+            if (p.Out || !gameGui.WorldToScreen(at, out var px)) continue;
+            ImGui.SetNextWindowPos(px - new Vector2(r));
+            ImGui.SetNextWindowSize(new Vector2(2 * r));
+            try
+            {
+                if (!ImGui.Begin($"##sdr-ring-{p.Name}", flags)) continue;
+                ImGui.InvisibleButton("##drag", new Vector2(2 * r));
+                var held = ImGui.IsItemActive();
+                if (held || ImGui.IsItemHovered())
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeAll);
+                    if (!held) ImGui.SetTooltip($"{p.Name}: drag to move this ring{(spots.ContainsKey(p) ? "; right-click to follow the player again" : "")}.");
+                }
+                if (held && ImGui.IsMouseDragging(ImGuiMouseButton.Left) && gameGui.ScreenToWorld(ImGui.GetMousePos(), out var ground))
+                    spots[p] = ground;
+                if (ImGui.IsItemClicked(ImGuiMouseButton.Right)) spots.Remove(p);
+                var draw = ImGui.GetWindowDrawList();
+                draw.AddCircleFilled(px, r * 0.7f, 0x60000000);
+                draw.AddCircle(px, r * 0.7f, held ? 0xFF6AC5FF : 0xFFFFFFFF, 0, 2 * ImGuiHelpers.GlobalScale);
+            }
+            finally
+            {
+                ImGui.End(); // Begin needs its End even when it returns false
+            }
+        }
     }
 
     /// <summary>One line for the settings: how many players the marks found, and the GPU path's state.</summary>
@@ -362,7 +420,7 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    /// <summary>Where each listed player stands. Debug-mode dummies stand in a ring 4 m round you.</summary>
+    /// <summary>Where each listed player's ring goes: a spot placed by hand, else where they stand. Debug-mode dummies stand in a ring 4 m round you.</summary>
     private void FindPlayers()
     {
         seen.Clear();
@@ -371,9 +429,11 @@ public sealed class Plugin : IDalamudPlugin
         var d = 0;
         foreach (var p in Game.Players)
         {
-            if (!p.IsDummy || !DebugMode) continue;
-            var a = MathF.Tau * d++ / dummies;
-            seen.Add((p, me.Position + new Vector3(MathF.Sin(a), 0, MathF.Cos(a)) * 4));
+            if (p.IsDummy && !DebugMode) continue;
+            if (spots.TryGetValue(p, out var spot)) seen.Add((p, spot)); // a placed ring shows even when its player is away
+            if (!p.IsDummy) continue;
+            var a = MathF.Tau * d++ / dummies; // counted for placed dummies too, so the others keep their places
+            if (!spots.ContainsKey(p)) seen.Add((p, me.Position + new Vector3(MathF.Sin(a), 0, MathF.Cos(a)) * 4));
         }
 
         // One pass over the nearby players, each name read once. Exact names: the list holds plain "Forename Surname".

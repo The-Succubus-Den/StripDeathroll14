@@ -249,12 +249,18 @@ public class GameTests
 
         Assert.Equal(Phase.Turns, g.Phase);
         Assert.Equal(Marker.Turn, g.MarkerFor(P(g, "Ann Lee"))); // highest opening roll starts and is up
+        Assert.Equal(Marker.Next, g.MarkerFor(P(g, "Bo Ray")));
+        Assert.Equal(Marker.Seated, g.MarkerFor(P(g, "Cy Dee")));
         g.OnRoll(P(g, "Ann Lee"), 400, null);
         Assert.Equal(Marker.Starter, g.MarkerFor(P(g, "Ann Lee")));
         Assert.Equal(Marker.Turn, g.MarkerFor(P(g, "Bo Ray")));
-        Assert.Equal(Marker.Seated, g.MarkerFor(P(g, "Cy Dee")));
+        Assert.Equal(Marker.Next, g.MarkerFor(P(g, "Cy Dee")));
+        g.OnRoll(P(g, "Bo Ray"), 300, 400);
+        Assert.Equal(Marker.Next, g.MarkerFor(P(g, "Ann Lee"))); // up after Cy: next wins over starter (WorldMarkers still labels it)
+        g.OnRoll(P(g, "Cy Dee"), 200, 300);
+        g.OnRoll(P(g, "Ann Lee"), 100, 200);
 
-        g.OnRoll(P(g, "Bo Ray"), 69, 400);
+        g.OnRoll(P(g, "Bo Ray"), 69, 100);
         Assert.Equal(Phase.Pick, g.Phase);
         Assert.Equal(Marker.Winner, g.MarkerFor(P(g, "Bo Ray")));
         Assert.Equal(Marker.Seated, g.MarkerFor(P(g, "Cy Dee")));

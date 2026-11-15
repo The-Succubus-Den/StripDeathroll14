@@ -22,9 +22,6 @@ public sealed class Configuration : IPluginConfiguration
 
     public TextChannel TextChannel { get; set; } = TextChannel.Say;
 
-    /// <summary>Game tab shows the players seated round a circle (drag to reseat) instead of the table.</summary>
-    public bool CircleView { get; set; } = true;
-
     /// <summary>On by default: KosDraw marks the players in the world (who is up, who owes an opening roll, who won).</summary>
     public bool WorldMarkers { get; set; } = true;
 
