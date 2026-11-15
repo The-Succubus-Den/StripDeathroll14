@@ -21,6 +21,7 @@ public class GameTests
         Assert.Equal(new ParsedRoll("Ann Lee", 5, 532), Rolls.ParseRandom("Random! Ann Lee rolls a 5 (out of 532)."));
         Assert.Equal(new ParsedRoll(null, 7, 10), Rolls.ParseDice("Random! (1-10) 7"));
         Assert.Equal(new ParsedRoll(null, 812, null), Rolls.ParseDice("Random! 812"));
+        Assert.Equal(new ParsedRoll(null, 0, 10), Rolls.ParseDice("Random! (1-10) 0")); // a 0 is a real roll
         Assert.Null(Rolls.ParseRandom("Ann Lee: Random! You roll a 7 (out of 10)."));
         Assert.Null(Rolls.ParseDice("Random! (1-10) 7 extra"));
     }
@@ -31,7 +32,7 @@ public class GameTests
     [InlineData("Random! (1-99999999999) 5")]   // int overflow
     [InlineData("Random! 99999999999")]
     [InlineData("Random! (1-10) \u0663")]       // Arabic-Indic digit: \d matches it, int.Parse throws
-    [InlineData("Random! (1-10) 0")]
+    [InlineData("Random! (1-1) 0")]             // no real maximum is below 2
     [InlineData("Random! (1-10) 11")]           // above the range
     [InlineData("Random! (1-0) 0")]
     public void DiceParserRejectsImpossibleOrForgedNumbers(string text) => Assert.Null(Rolls.ParseDice(text));
@@ -39,7 +40,8 @@ public class GameTests
     [Theory]
     [InlineData("Random! Ann Lee rolls a 99999999999.")]
     [InlineData("Random! Ann Lee rolls a 11 (out of 10).")]
-    [InlineData("Random! You roll a 0 (out of 10).")]
+    [InlineData("Random! You roll a -1 (out of 10).")]
+    [InlineData("Random! You roll a 0 (out of 1).")]
     public void RandomParserRejectsImpossibleNumbers(string text) => Assert.Null(Rolls.ParseRandom(text));
 
     [Fact]
@@ -446,7 +448,7 @@ public class GameTests
                     foreach (var p in g.Active.Where(p => p.Opening is null).ToList()) g.OnRoll(p, rng.Next(1, 1000), null);
                 else if (g.Phase == Phase.Turns)
                 {
-                    var out1 = g.OnRoll(g.Current, rng.Next(1, (g.Limit ?? DeathrollGame.OpeningMax) + 1), g.Limit);
+                    var out1 = g.OnRoll(g.Current, rng.Next(0, (g.Limit ?? DeathrollGame.OpeningMax) + 1), g.Limit);
                     Assert.True(out1 is RollOutcome.Next or RollOutcome.Won);
                 }
                 else if (g.Phase == Phase.Pick)
@@ -536,6 +538,16 @@ public class GameTests
         Assert.False(DeathrollGame.NotCounted(RollNote.Counted));
         g.NewGame();
         Assert.Null(g.LastRoll(P(g, "Ann Lee")));
+    }
+
+    [Fact]
+    public void ZeroWinsTheRound()
+    {
+        Assert.Equal([0, 1, 69, 666], Enumerable.Range(0, 1000).Where(DeathrollGame.IsEnding));
+        var g = Opened(out _);
+        Assert.Equal(RollOutcome.Won, g.OnRoll(g.Current, 0, null));
+        Assert.Equal(0, g.WinningRoll);
+        Assert.Equal(new ParsedRoll(null, 0, 532), Rolls.ParseRandom("Random! You roll a 0 (out of 532)."));
     }
 
     private static void WinRound(DeathrollGame g, string winner, string target)

@@ -125,7 +125,7 @@ public sealed class DeathrollGame
         _ => null,
     };
 
-    public static bool IsEnding(int roll) => roll is 1 or 69 or 666;
+    public static bool IsEnding(int roll) => roll is 0 or 1 or 69 or 666; // /random rolls 0 to N
 
     /// <summary>The player's most recent roll this game, any round, counted or not; null before their first.</summary>
     public RollRecord? LastRoll(Player p) => RollLog.LastOrDefault(r => r.Player == p.Name);
@@ -395,7 +395,8 @@ public static partial class Rolls
     }
 
     // Party chat is typed text, so a /dice-shaped line can be forged: drop numbers no real roll produces.
-    private static ParsedRoll? Checked(ParsedRoll r) => r.Value >= 1 && r.Value <= (r.Max ?? int.MaxValue) ? r : null;
+    // /random and /dice roll 0 to N, and N is at least 2.
+    private static ParsedRoll? Checked(ParsedRoll r) => r.Value >= 0 && r.Max is null or >= 2 && r.Value <= (r.Max ?? int.MaxValue) ? r : null;
 }
 
 /// <summary>Every line the plugin posts, and the command prefixes it posts them with.</summary>

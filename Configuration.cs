@@ -24,9 +24,9 @@ public sealed class Configuration : IPluginConfiguration
     public TextChannel ReminderChannel { get; set; } = TextChannel.Say; // Say or Party only
 
     public string RulesText { get; set; } =
-        "Strip Deathroll! Everyone rolls /random to start; highest goes first, then down the list.\n" +
+        "Strip Deathroll! Everyone rolls /random to start; highest goes first, then clockwise.\n" +
         "On your turn, roll /random up to the number the player before you rolled.\n" +
-        "Roll a 1, 69 or 666 to win the round - then you pick who strips.\n" +
+        "Roll a 0, 1, 69 or 666 to win the round - then you pick who strips.\n" +
         "Everyone has 3 pieces. Lose all 3 and you are out!";
 
     public string AdText { get; set; } = "Strip Deathroll starting soon! Ask to join the game.";

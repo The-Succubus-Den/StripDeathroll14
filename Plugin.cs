@@ -202,7 +202,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (!DebugMode || !dummy.IsDummy) return;
         int? max = Game.Phase == Phase.Opening ? null : Game.Limit;
-        var value = one ? 1 : Random.Shared.Next(1, (max ?? DeathrollGame.OpeningMax) + 1);
+        var value = one ? 1 : Random.Shared.Next(0, (max ?? DeathrollGame.OpeningMax) + 1);
         chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll debug] {dummy.Name} rolls {value} (out of {max ?? DeathrollGame.OpeningMax})" });
         Receive(dummy, value, max);
     }

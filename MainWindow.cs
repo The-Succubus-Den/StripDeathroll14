@@ -269,17 +269,20 @@ public sealed class MainWindow : Window
         ImGui.SetNextItemWidth(160);
         if (Combo("Post to", config.TextChannel, Enum.GetValues<TextChannel>(), c => c.ToString(), c => config.TextChannel = c)) plugin.SaveConfig();
         ImGui.TextDisabled($"One chat line per text line, up to {Lines.MaxTextLines}, 2-3.5 s apart.");
-        DrawText("Rules", config.RulesText, v => config.RulesText = v);
-        DrawText("Ad", config.AdText, v => config.AdText = v);
+        var defaults = new Configuration();
+        DrawText("Rules", config.RulesText, v => config.RulesText = v, defaults.RulesText);
+        DrawText("Ad", config.AdText, v => config.AdText = v, defaults.AdText);
     }
 
-    private void DrawText(string label, string value, Action<string> set)
+    private void DrawText(string label, string value, Action<string> set, string defaultValue)
     {
         ImGui.Separator();
         ImGui.TextUnformatted(label);
         if (ImGui.InputTextMultiline($"##{label}", ref value, 4000, new Vector2(-1, 110))) set(value);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
         if (ImGui.Button($"Post {label.ToLowerInvariant()}")) plugin.PostText(value);
+        ImGui.SameLine();
+        if (ImGui.Button($"Default##{label}")) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
     }
 
     private void DrawSettings()
