@@ -462,7 +462,7 @@ public static class Lines
 }
 
 /// <summary>
-/// Every line the plugin sends (rolls, calls, reminders, rules/ad) waits here: one at a time, 2-5 s apart (the host picks),
+/// Every line the plugin sends (rolls, calls, reminders, rules/ad) waits here: one at a time, a random 2-5 s apart (within the host's limits),
 /// a line already waiting is not added twice, and the queue is capped so nothing can pile up into spam.
 /// </summary>
 public sealed class Outbox
@@ -482,6 +482,14 @@ public sealed class Outbox
         if (waiting.Count >= MaxWaiting || waiting.Contains(item)) return false;
         waiting.Enqueue(item);
         return true;
+    }
+
+    /// <summary>A random gap from minSeconds to maxSeconds (to the millisecond), both kept inside 2-5 s.</summary>
+    public static int Gap(Random rng, int minSeconds, int maxSeconds)
+    {
+        var lo = Math.Clamp(minSeconds * 1000, MinGapMs, MaxGapMs);
+        var hi = Math.Clamp(maxSeconds * 1000, lo, MaxGapMs);
+        return rng.Next(lo, hi + 1);
     }
 
     /// <summary>The next line once the gap since the last one has passed; the following line waits gapMs after it.</summary>

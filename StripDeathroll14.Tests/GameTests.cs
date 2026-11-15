@@ -575,6 +575,19 @@ public class GameTests
     }
 
     [Fact]
+    public void GapIsRandomWithinTheHostsLimitsAndNeverOutsideTwoToFive()
+    {
+        var rng = new Random(1);
+        var gaps = Enumerable.Range(0, 5000).Select(_ => Outbox.Gap(rng, 3, 4)).ToList();
+        Assert.Equal(3000, gaps.Min());
+        Assert.Equal(4000, gaps.Max());
+        Assert.True(gaps.Distinct().Count() > 500); // spread, not a few fixed steps
+        Assert.All(Enumerable.Range(0, 200), _ => Assert.Equal(3000, Outbox.Gap(rng, 3, 3)));
+        Assert.All(Enumerable.Range(0, 2000), _ => Assert.InRange(Outbox.Gap(rng, 0, 99), Outbox.MinGapMs, Outbox.MaxGapMs));
+        Assert.All(Enumerable.Range(0, 200), _ => Assert.Equal(5000, Outbox.Gap(rng, 5, 2))); // max below min: min wins
+    }
+
+    [Fact]
     public void OutboxDropsRepeatsAndCapsTheQueue()
     {
         var o = new Outbox();

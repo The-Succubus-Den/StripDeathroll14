@@ -340,7 +340,7 @@ public sealed class Plugin : IDalamudPlugin
         var waitKey = Config.ReminderEnabled ? Game.WaitingKey : null;
         if (reminder.Due(waitKey, now, Config.ReminderSeconds * 1000)) Remind();
 
-        if (outbox.Take(now, Config.SendSeconds * 1000) is not { } next) return;
+        if (outbox.Take(now, Outbox.Gap(Random.Shared, Config.SendMinSeconds, Config.SendMaxSeconds)) is not { } next) return;
         var (prefix, text, freeText) = next;
 
         if (freeText && !IsClean(text))

@@ -16,8 +16,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Off by default: calls and results wait in the window for a Post press.</summary>
     public bool AutoPost { get; set; }
 
-    /// <summary>Seconds between any two lines the plugin sends, 2-5 (Outbox clamps it too).</summary>
-    public int SendSeconds { get; set; } = 3;
+    /// <summary>Each gap between two sent lines is random within these limits, 2-5 s (Outbox clamps them too).</summary>
+    public int SendMinSeconds { get; set; } = 2;
+    public int SendMaxSeconds { get; set; } = 4;
 
     public TextChannel TextChannel { get; set; } = TextChannel.Say;
 
@@ -42,7 +43,8 @@ public sealed class Configuration : IPluginConfiguration
         if (!Enum.IsDefined(CallChannel)) CallChannel = CallChannel.Venue;
         if (ReminderChannel is not (TextChannel.Say or TextChannel.Party)) ReminderChannel = TextChannel.Say;
         ReminderSeconds = Math.Clamp(ReminderSeconds, MinReminderSeconds, 120);
-        SendSeconds = Math.Clamp(SendSeconds, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000);
+        SendMinSeconds = Math.Clamp(SendMinSeconds, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000);
+        SendMaxSeconds = Math.Clamp(SendMaxSeconds, SendMinSeconds, Outbox.MaxGapMs / 1000);
         RulesText ??= "";
         AdText ??= "";
     }
