@@ -1,6 +1,8 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 
@@ -37,7 +39,12 @@ public sealed partial class MainWindow : Window
         var config = plugin.Config;
         var game = plugin.Game;
 
-        if (plugin.DebugMode) ImGui.TextColored(ImGuiColors.DalamudOrange, "Debug mode: posts go to Echo only, never to chat.");
+        if (plugin.DebugMode)
+        {
+            Badge("Debug", ImGuiColors.DalamudOrange);
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudOrange, "Posts go to Echo only, never to chat.");
+        }
 
         ImGui.SetNextItemWidth(200);
         if (Combo("Venue", config.Venue, Enum.GetValues<Venue>(), VenueLabel, v => config.Venue = v)) plugin.SaveConfig();
@@ -62,35 +69,45 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         ImGui.TextDisabled($"Calls go to {plugin.CallPrefix}; players roll {plugin.RollCommand(null)} [N].");
 
-        ImGui.Separator();
-        ImGui.TextUnformatted(Status(game));
-        if (plugin.ReminderSecondsLeft is { } left)
+        ImGui.Spacing();
+        var phaseColor = PhaseColor(game.Phase);
+        Card("status", phaseColor, () =>
         {
+            Badge(PhaseLabel(game), phaseColor);
             ImGui.SameLine();
-            ImGui.TextDisabled($"Reminder in {left} s ({ReminderClock.MaxPerTurn - plugin.RemindersSent} left).");
-        }
-        if (game.Phase == Phase.Turns && game.Starter is { } top)
-            ImGui.TextColored(ImGuiColors.DalamudYellow, top.Opening is { } o ? $"Highest opening: {top.Name} ({o})." : $"Started by {top.Name} (next after last round's winner).");
-        if (plugin.LastAlert is { } alert) ImGui.TextColored(ImGuiColors.DalamudRed, alert);
+            ImGui.TextUnformatted(Status(game));
+            if (plugin.ReminderSecondsLeft is { } left)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled($"Reminder in {left} s ({ReminderClock.MaxPerTurn - plugin.RemindersSent} left).");
+            }
+            if (game.Phase == Phase.Turns && game.Starter is { } top)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, top.Opening is { } o ? $"Highest opening: {top.Name} ({o})." : $"Started by {top.Name} (next after last round's winner).");
+            if (plugin.LastAlert is { } alert) ImGui.TextColored(ImGuiColors.DalamudRed, alert);
 
-        if (game.Pending is { } pending && pending.Player == game.Current)
+            if (game.Pending is { } pending && pending.Player == game.Current)
+            {
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Check, $"Accept {pending.Value}")) plugin.AcceptPending();
+                ImGui.SameLine();
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.RedoAlt, "Ask for reroll")) plugin.CallCurrent();
+            }
+
+            if (game.Phase == Phase.Pick) DrawPick(game);
+        });
+
+        using (ImRaii.Disabled(!game.CanStartRound))
         {
-            if (ImGui.Button($"Accept {pending.Value}")) plugin.AcceptPending();
-            ImGui.SameLine();
-            if (ImGui.Button("Ask for reroll")) plugin.CallCurrent();
+            if (game.Phase == Phase.Setup ? ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Play, "Start round") : ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "Restart round"))
+                plugin.StartRound();
         }
-
-        if (game.Phase == Phase.Pick) DrawPick(game);
-
-        using (ImRaii.Disabled(!game.CanStartRound)) { if (ImGui.Button(game.Phase == Phase.Setup ? "Start round" : "Restart round")) plugin.StartRound(); }
         ImGui.SameLine();
         var myRoll = plugin.MyRoll;
-        using (ImRaii.Disabled(myRoll is null)) { if (ImGui.Button(myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}")) plugin.RollForMe(); }
+        using (ImRaii.Disabled(myRoll is null)) { if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Dice, myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}")) plugin.RollForMe(); }
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Your roll: a fresh /random to open or to start the turns, else up to the previous roll. /sdr roll does the same from a macro.");
         ImGui.SameLine();
-        using (ImRaii.Disabled(game.Current is null)) { if (ImGui.Button("Call again")) plugin.CallCurrent(); }
+        using (ImRaii.Disabled(game.Current is null)) { if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Bullhorn, "Call again")) plugin.CallCurrent(); }
         ImGui.SameLine();
-        if (ImGui.Button("New game") && ImGui.GetIO().KeyCtrl) game.NewGame();
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, "New game") && ImGui.GetIO().KeyCtrl) game.NewGame();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: everyone back to 3 pieces, history cleared.");
 
         DrawProposed();
@@ -140,7 +157,7 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         using (ImRaii.Disabled(pickPiece is null))
         {
-            if (ImGui.Button("Confirm") && pickPiece is { } chosen)
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Check, "Confirm") && pickPiece is { } chosen)
             {
                 plugin.Pick(pickTarget, chosen);
                 pickTarget = null;
@@ -157,12 +174,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        ImGui.Separator();
-        ImGui.TextUnformatted($"To post in {plugin.CallPrefix}:");
-        foreach (var line in plugin.Proposed) ImGui.BulletText(line);
-        if (ImGui.Button("Post")) plugin.PostProposed();
-        ImGui.SameLine();
-        if (ImGui.Button("Discard")) plugin.Proposed.Clear();
+        Card("proposed", ImGuiColors.TankBlue, () =>
+        {
+            ImGui.TextUnformatted($"To post in {plugin.CallPrefix}:");
+            foreach (var line in plugin.Proposed) ImGui.BulletText(line);
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.PaperPlane, "Post")) plugin.PostProposed();
+            ImGui.SameLine();
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Times, "Discard")) plugin.Proposed.Clear();
+        });
     }
 
     private void DrawAddPlayers(DeathrollGame game)
@@ -170,20 +189,20 @@ public sealed partial class MainWindow : Window
         ImGui.SetNextItemWidth(180);
         var enter = ImGui.InputTextWithHint("##name", "Forename Surname", ref newName, 32, ImGuiInputTextFlags.EnterReturnsTrue);
         ImGui.SameLine();
-        if (ImGui.Button("Add") || enter)
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Plus, "Add") || enter)
         {
             addNote = game.Add(newName) ? "" : "Needs Forename Surname (letters, ' or -), not already listed.";
             if (addNote.Length == 0) newName = "";
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Add target")) addNote = plugin.AddTarget();
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Crosshairs, "Add target")) addNote = plugin.AddTarget();
         ImGui.SameLine();
-        if (ImGui.Button("Add party/alliance")) addNote = $"Added {plugin.AddGroup()} player(s).";
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Users, "Add party/alliance")) addNote = $"Added {plugin.AddGroup()} player(s).";
         if (plugin.DebugMode)
         {
             ImGui.SameLine();
-            if (ImGui.Button("Add dummy")) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Robot, "Add dummy")) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
         }
 
         if (addNote.Length > 0) ImGui.TextDisabled(addNote);
@@ -302,9 +321,9 @@ public sealed partial class MainWindow : Window
         ImGui.TextUnformatted(label);
         if (ImGui.InputTextMultiline($"##{label}", ref value, 4000, new Vector2(-1, 110))) set(value);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
-        if (ImGui.Button($"Post {label.ToLowerInvariant()}")) plugin.PostText(value);
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Bullhorn, $"Post {label.ToLowerInvariant()}")) plugin.PostText(value);
         ImGui.SameLine();
-        if (ImGui.Button($"Default##{label}")) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
+        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Undo, $"Default##{label}")) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
     }
 
     private void DrawSettings()
