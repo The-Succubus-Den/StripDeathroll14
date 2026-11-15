@@ -88,7 +88,9 @@ public sealed class DeathrollGame
 
     // Debug-mode stand-ins; valid "Forename Surname" names so every code path treats them like players.
     public static readonly string[] DummyNames =
-        ["Dummy Alpha", "Dummy Bravo", "Dummy Charlie", "Dummy Delta", "Dummy Echo", "Dummy Foxtrot", "Dummy Golf", "Dummy Hotel"];
+        ["Dummy Alpha", "Dummy Bravo", "Dummy Charlie", "Dummy Delta", "Dummy Echo", "Dummy Foxtrot", "Dummy Golf", "Dummy Hotel",
+         "Dummy India", "Dummy Juliett", "Dummy Kilo", "Dummy Lima", "Dummy Mike", "Dummy November", "Dummy Oscar", "Dummy Papa",
+         "Dummy Quebec", "Dummy Romeo", "Dummy Sierra", "Dummy Tango", "Dummy Uniform", "Dummy Victor", "Dummy Whiskey", "Dummy Xray"];
 
     private int turnSerial;
 
