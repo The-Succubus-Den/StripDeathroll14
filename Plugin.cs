@@ -366,20 +366,24 @@ public sealed class Plugin : IDalamudPlugin
     private void FindPlayers()
     {
         seen.Clear();
-        if (!Config.WorldMarkers || objects.LocalPlayer is not { } me) return;
+        if (!Config.WorldMarkers || Game.Players.Count == 0 || objects.LocalPlayer is not { } me) return;
         var dummies = Game.Players.Count(p => p.IsDummy);
         var d = 0;
         foreach (var p in Game.Players)
         {
-            if (p.IsDummy)
-            {
-                if (!DebugMode) continue;
-                var a = MathF.Tau * d++ / dummies;
-                seen.Add((p, me.Position + new Vector3(MathF.Sin(a), 0, MathF.Cos(a)) * 4));
-                continue;
-            }
-            foreach (var o in objects.PlayerObjects)
-                if (Names.Matches(p.Name, o.Name.TextValue)) { seen.Add((p, o.Position)); break; }
+            if (!p.IsDummy || !DebugMode) continue;
+            var a = MathF.Tau * d++ / dummies;
+            seen.Add((p, me.Position + new Vector3(MathF.Sin(a), 0, MathF.Cos(a)) * 4));
+        }
+
+        // One pass over the nearby players, each name read once. Exact names: the list holds plain "Forename Surname".
+        // shortcut: two same-named players from different worlds nearby get one ring; match on world too if that matters.
+        foreach (var o in objects.PlayerObjects)
+        {
+            var name = o.Name.TextValue;
+            foreach (var p in Game.Players)
+                if (!p.IsDummy && name.Equals(p.Name, StringComparison.OrdinalIgnoreCase) && !seen.Exists(s => s.Player == p))
+                    seen.Add((p, o.Position));
         }
     }
 
