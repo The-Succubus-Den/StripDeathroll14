@@ -26,11 +26,11 @@ public sealed partial class MainWindow : Window
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(440, 360), MaximumSize = new Vector2(1200, 1400) };
     }
 
-    /// <summary>The opt-in whole-window theme has to be pushed before ImGui begins the window, so it lives here.</summary>
+    /// <summary>The one look under test: MaterialKos in KosMos colours. It must be pushed before ImGui begins the window.</summary>
     public override void PreDraw()
     {
         windowTheme?.Dispose();
-        windowTheme = plugin.Config.WholeWindowTheme ? KosTheme.PushWindow(plugin.Config.Accent) : null;
+        windowTheme = KosTheme.PushWindow(KosAccent.KosMos, material: true);
     }
 
     /// <summary>Dalamud calls this whenever it called PreDraw, so the whole-window push is always popped.</summary>
@@ -42,7 +42,6 @@ public sealed partial class MainWindow : Window
 
     public override void Draw()
     {
-        using var accent = KosTheme.Push(plugin.Config.Accent); // scoped to this window; Dalamud style pushes nothing
         using var bar = ImRaii.TabBar("##tabs");
         if (!bar) return;
         using (var t = ImRaii.TabItem("Game")) if (t) DrawGame();
@@ -360,26 +359,7 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled($"Posts \"Reminder: Name, it's your turn - roll ...\" (or lists everyone missing an opening roll) after that long\n" +
             $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn, whether or not the call was posted. Not while a wrong roll waits for you.");
 
-        Kos.Section("Look", "02");
-        ImGui.SetNextItemWidth(200);
-        if (Combo("Accent", config.Accent, Enum.GetValues<KosAccent>(), KosTheme.Label, a => config.Accent = a)) plugin.SaveConfig();
-        using (ImRaii.Disabled(config.Accent == KosAccent.Dalamud))
-        {
-            var whole = config.WholeWindowTheme;
-            if (ImGui.Checkbox("Theme the whole window", ref whole))
-            {
-                config.WholeWindowTheme = whole;
-                plugin.SaveConfig();
-            }
-        }
-        ImGui.SameLine();
-        Kos.HelpMarker("Off: only buttons, tabs, frames and KosLib's own pieces take the accent, over your Dalamud theme.\n" +
-            "On: the background, title bar, text and borders take it too, light or dark like your theme, keeping its transparency.\n" +
-            "Has no effect under Dalamud style.");
-        ImGui.TextDisabled("Colours this window's buttons, tabs, checkboxes and sliders, and edges its cards and section headers.\n" +
-            "KosMos is the profile site's crimson and gold, with night cards and rounder frames. Dalamud style keeps your own theme untouched.");
-
-        Kos.Section("Debug", "03");
+        Kos.Section("Debug", "02");
         var debug = plugin.DebugMode;
         if (ImGui.Checkbox("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
         ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +
