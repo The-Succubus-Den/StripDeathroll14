@@ -13,6 +13,11 @@
     <!-- KosLib submodule: compile its sources only, never its tests or nested obj/ -->
     <Compile Remove="KosLib/**" />
     <Compile Include="KosLib/src/**/*.cs" />
+    <!-- KosDraw submodule (world markers): sources only. Dalamud ships TerraFX but the SDK does not reference it;
+         Private=false keeps Dalamud's copy the one loaded and out of the release zip. -->
+    <Compile Remove="KosDraw/**" />
+    <Compile Include="KosDraw/src/**/*.cs" />
+    <Reference Include="TerraFX.Interop.Windows" Private="false" />
   </ItemGroup>
   <PropertyGroup>
     <Author>PriestKos</Author>

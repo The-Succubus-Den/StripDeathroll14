@@ -1,3 +1,6 @@
 [submodule "KosLib"]
 	path = KosLib
 	url = https://github.com/priestkos/KosLib.git
+[submodule "KosDraw"]
+	path = KosDraw
+	url = https://github.com/priestkos/KosDraw.git

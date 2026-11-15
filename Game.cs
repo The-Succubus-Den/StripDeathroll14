@@ -36,6 +36,9 @@ public enum Piece
 
 public enum Phase { Setup, Opening, Turns, Pick, GameOver }
 
+/// <summary>What the world overlay draws under a player.</summary>
+public enum Marker { None, Seated, Opening, Turn, Starter, Winner }
+
 public enum RollOutcome
 {
     Ignored,          // not a player, out, or nothing expected
@@ -125,6 +128,15 @@ public sealed class DeathrollGame
         Phase.Opening => $"{Round}/o/{string.Join(",", Waiting.Select(p => p.Name))}",
         Phase.Turns when Pending is null && Current is not null => $"{Round}/t/{turnSerial}",
         _ => null,
+    };
+
+    /// <summary>The world marker for <paramref name="p"/>: who is up, who owes an opening roll, who won; none once out.</summary>
+    public Marker MarkerFor(Player p) => p.Out ? Marker.None : Phase switch
+    {
+        Phase.Opening => p.Opening is null ? Marker.Opening : Marker.Seated,
+        Phase.Turns => p == Current ? Marker.Turn : p == Starter ? Marker.Starter : Marker.Seated,
+        Phase.Pick or Phase.GameOver => p == Winner ? Marker.Winner : Marker.Seated,
+        _ => Marker.Seated,
     };
 
     public static bool IsEnding(int roll) => roll is 0 or 1 or 69 or 666; // /random rolls 0 to N

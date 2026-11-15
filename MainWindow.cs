@@ -359,7 +359,23 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled($"Posts \"Reminder: Name, it's your turn - roll ...\" (or lists everyone missing an opening roll) after that long\n" +
             $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn, whether or not the call was posted. Not while a wrong roll waits for you.");
 
-        Kos.Section("Debug", "02");
+        Kos.Section("World markers", "02");
+        var world = config.WorldMarkers;
+        if (ImGui.Checkbox("Mark the players in the world", ref world)) { config.WorldMarkers = world; plugin.SaveConfig(); }
+        using (ImRaii.Disabled(!config.WorldMarkers))
+        {
+            var mode = config.WorldMarkersGpu ? 1 : 0;
+            if (Kos.Segmented("##drawwith", ref mode, "ImGui", "GPU")) { config.WorldMarkersGpu = mode == 1; plugin.SaveConfig(); }
+            ImGui.SameLine();
+            Kos.HelpMarker("ImGui: drawn over everything, so the rings show through walls and other players.\n" +
+                "GPU: KosDraw's Direct3D path. Rings fade behind scenery and stay off the game's own UI.\n" +
+                "If a GPU part fails it switches itself off and ImGui draws that part instead.");
+            ImGui.TextDisabled("Crimson ring and the number to roll: whoever is up. Gold: owes an opening roll, started the turns\n" +
+                "(dot overhead) or won the round. Thin ring: everyone else. Players who are out get none.");
+            ImGui.TextDisabled(plugin.WorldStatus);
+        }
+
+        Kos.Section("Debug", "03");
         var debug = plugin.DebugMode;
         if (ImGui.Checkbox("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
         ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +

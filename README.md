@@ -73,6 +73,7 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 - **Rules & Ad** — the two texts and the channel they go to (Say, Yell, Party).
 - **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), Say or Party.
 - **Look** — the window uses MaterialKos (Material 3 colours) in the KosMos palette: night-blue surfaces with crimson and gold, and rounder windows and frames. It follows your Dalamud theme's light or dark choice and keeps its background transparency. There is no style setting while this look is being tested.
+- **World markers** (Settings tab, on by default) — rings under the listed players in the game world, drawn by [KosDraw](https://github.com/priestkos/KosDraw) in the same KosMos colours: crimson with the number to roll under whoever is up, gold for an owed opening roll, the turn starter (dot overhead) or the round winner, a thin ring for everyone else, none once out. **ImGui** draws over everything; **GPU** uses KosDraw's Direct3D path, so rings fade behind scenery and stay off the game's UI, and any part that fails switches itself off and falls back to ImGui. In debug mode the dummy players stand in a ring round you.
 - **Debug mode** (Settings tab) — session only, never saved. While it is on, the Settings tab also shows the KosLib gallery (every component in every preset).
 
 ## Build

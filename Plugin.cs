@@ -1,3 +1,4 @@
+using System.Numerics;
 using Dalamud.Game.Chat;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
@@ -10,6 +11,7 @@ using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
+using KosDraw;
 
 namespace StripDeathroll14;
 
@@ -30,6 +32,9 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IFramework framework;
     private readonly IPartyList partyList;
     private readonly ITargetManager targetManager;
+    private readonly IObjectTable objects;
+    private readonly KosOverlay overlay;
+    private readonly List<(Player Player, Vector3 At)> seen = []; // filled on the framework thread, drawn in Draw
     private readonly ReminderClock reminder = new();
     private readonly WindowSystem windowSystem = new("StripDeathroll14");
     private readonly MainWindow window;
@@ -60,7 +65,9 @@ public sealed class Plugin : IDalamudPlugin
         IPlayerState playerState,
         IFramework framework,
         IPartyList partyList,
-        ITargetManager targetManager)
+        ITargetManager targetManager,
+        IObjectTable objects,
+        IPluginLog log)
     {
         this.pluginInterface = pluginInterface;
         this.commandManager = commandManager;
@@ -70,6 +77,8 @@ public sealed class Plugin : IDalamudPlugin
         this.framework = framework;
         this.partyList = partyList;
         this.targetManager = targetManager;
+        this.objects = objects;
+        overlay = new KosOverlay(pluginInterface.UiBuilder, log); // the GPU path is created lazily, only if switched on
 
         Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Config.Normalize();
@@ -78,7 +87,7 @@ public sealed class Plugin : IDalamudPlugin
         window = new MainWindow(this);
         windowSystem.AddWindow(window);
 
-        pluginInterface.UiBuilder.Draw += windowSystem.Draw;
+        pluginInterface.UiBuilder.Draw += OnDraw;
         pluginInterface.UiBuilder.OpenMainUi += window.Toggle;
         pluginInterface.UiBuilder.OpenConfigUi += window.Toggle;
         chatGui.ChatMessage += OnChatMessage;
@@ -103,8 +112,9 @@ public sealed class Plugin : IDalamudPlugin
         chatGui.ChatMessage -= OnChatMessage;
         pluginInterface.UiBuilder.OpenConfigUi -= window.Toggle;
         pluginInterface.UiBuilder.OpenMainUi -= window.Toggle;
-        pluginInterface.UiBuilder.Draw -= windowSystem.Draw;
+        pluginInterface.UiBuilder.Draw -= OnDraw;
         windowSystem.RemoveAllWindows();
+        overlay.Dispose();
         KosLib.Kos.Mono = null; // not disposed: the handle is Dalamud's
     }
 
@@ -333,9 +343,50 @@ public sealed class Plugin : IDalamudPlugin
         Proposed.Clear();
     }
 
+    private void OnDraw()
+    {
+        windowSystem.Draw();
+        if (!Config.WorldMarkers || seen.Count == 0) return;
+        overlay.UseGpu = Config.WorldMarkersGpu;
+        overlay.Draw(s => WorldMarkers.Build(s, Game, seen));
+    }
+
+    /// <summary>One line for the settings: how many players the marks found, and the GPU path's state.</summary>
+    public string WorldStatus
+    {
+        get
+        {
+            var line = $"{seen.Count} of {Game.Active.Count()} players found nearby.";
+            if (Config.WorldMarkersGpu) line += $" GPU parts on: {overlay.GpuFeatures}.";
+            return overlay.LastFault is { } f ? $"{line}\nLast GPU fault: {f}" : line;
+        }
+    }
+
+    /// <summary>Where each listed player stands. Debug-mode dummies stand in a ring 4 m round you.</summary>
+    private void FindPlayers()
+    {
+        seen.Clear();
+        if (!Config.WorldMarkers || objects.LocalPlayer is not { } me) return;
+        var dummies = Game.Players.Count(p => p.IsDummy);
+        var d = 0;
+        foreach (var p in Game.Players)
+        {
+            if (p.IsDummy)
+            {
+                if (!DebugMode) continue;
+                var a = MathF.Tau * d++ / dummies;
+                seen.Add((p, me.Position + new Vector3(MathF.Sin(a), 0, MathF.Cos(a)) * 4));
+                continue;
+            }
+            foreach (var o in objects.PlayerObjects)
+                if (Names.Matches(p.Name, o.Name.TextValue)) { seen.Add((p, o.Position)); break; }
+        }
+    }
+
     private void OnUpdate(IFramework _)
     {
-        if (!clientState.IsLoggedIn) return;
+        if (!clientState.IsLoggedIn) { seen.Clear(); return; }
+        FindPlayers();
         var now = Environment.TickCount64;
 
         // Driven by the game state alone: an unposted call in the Post list must not hold reminders back mid-game.

@@ -25,6 +25,12 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Game tab shows the players seated round a circle (drag to reseat) instead of the table.</summary>
     public bool CircleView { get; set; } = true;
 
+    /// <summary>On by default: KosDraw marks the players in the world (who is up, who owes an opening roll, who won).</summary>
+    public bool WorldMarkers { get; set; } = true;
+
+    /// <summary>Off by default: draw the world marks with KosDraw's Direct3D path (faded behind scenery) instead of ImGui.</summary>
+    public bool WorldMarkersGpu { get; set; }
+
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;

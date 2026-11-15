@@ -235,6 +235,36 @@ public class GameTests
     }
 
     [Fact]
+    public void WorldMarkersFollowTheGame()
+    {
+        var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
+        Assert.All(g.Players, p => Assert.Equal(Marker.Seated, g.MarkerFor(p))); // setup: everyone found shows
+
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        Assert.Equal(Marker.Seated, g.MarkerFor(P(g, "Ann Lee")));
+        Assert.Equal(Marker.Opening, g.MarkerFor(P(g, "Bo Ray"))); // still owes an opening roll
+        g.OnRoll(P(g, "Bo Ray"), 500, null);
+        g.OnRoll(P(g, "Cy Dee"), 100, null);
+
+        Assert.Equal(Phase.Turns, g.Phase);
+        Assert.Equal(Marker.Turn, g.MarkerFor(P(g, "Ann Lee"))); // highest opening roll starts and is up
+        g.OnRoll(P(g, "Ann Lee"), 400, null);
+        Assert.Equal(Marker.Starter, g.MarkerFor(P(g, "Ann Lee")));
+        Assert.Equal(Marker.Turn, g.MarkerFor(P(g, "Bo Ray")));
+        Assert.Equal(Marker.Seated, g.MarkerFor(P(g, "Cy Dee")));
+
+        g.OnRoll(P(g, "Bo Ray"), 69, 400);
+        Assert.Equal(Phase.Pick, g.Phase);
+        Assert.Equal(Marker.Winner, g.MarkerFor(P(g, "Bo Ray")));
+        Assert.Equal(Marker.Seated, g.MarkerFor(P(g, "Cy Dee")));
+
+        var cy = P(g, "Cy Dee");
+        while (cy.Lives > 0) cy.Worn.RemoveAt(0);
+        Assert.Equal(Marker.None, g.MarkerFor(cy)); // out: no marker
+    }
+
+    [Fact]
     public void RemoveAndMoveKeepTheTurnSane()
     {
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
