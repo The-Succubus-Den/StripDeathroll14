@@ -170,6 +170,13 @@ public sealed class DeathrollGame
         (Players[i], Players[j]) = (Players[j], Players[i]);
     }
 
+    /// <summary>Moves p to seat index (the others shift up or down one), for dragging a seat around the circle.</summary>
+    public void MoveTo(Player p, int index)
+    {
+        if (!Players.Remove(p)) return;
+        Players.Insert(Math.Clamp(index, 0, Players.Count), p);
+    }
+
     public bool CanStartRound => Phase is Phase.Setup or Phase.Opening or Phase.Turns && Active.Count() >= 2;
 
     public void StartRound()
@@ -294,7 +301,8 @@ public sealed class DeathrollGame
         Phase = Phase.Turns;
     }
 
-    private Player? NextActive(Player from)
+    /// <summary>The next player in turn order after from (wrapping, skipping anyone out), or null if nobody else is in.</summary>
+    public Player? NextActive(Player from)
     {
         var i = Players.IndexOf(from);
         for (var step = 1; step <= Players.Count; step++)

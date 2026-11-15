@@ -568,6 +568,21 @@ public class GameTests
     }
 
     [Fact]
+    public void MoveToReseatsAPlayerAndNextActiveFollowsTheNewOrder()
+    {
+        var g = new DeathrollGame();
+        foreach (var n in new[] { "Ann Lee", "Bob Ray", "Cat Moe", "Dan Fox" }) g.Add(n);
+        var ann = g.Players[0];
+        g.MoveTo(ann, 2);
+        Assert.Equal(["Bob Ray", "Cat Moe", "Ann Lee", "Dan Fox"], g.Players.Select(p => p.Name));
+        g.MoveTo(g.Players[3], 0);
+        Assert.Equal(["Dan Fox", "Bob Ray", "Cat Moe", "Ann Lee"], g.Players.Select(p => p.Name));
+        g.MoveTo(ann, 99); // past the end lands last
+        Assert.Equal("Ann Lee", g.Players[^1].Name);
+        Assert.Equal("Dan Fox", g.NextActive(ann)?.Name); // wraps round the circle
+    }
+
+    [Fact]
     public void WinLineAsksWhoStripsUnlessTheResultFollows()
     {
         Assert.Equal("Ann Lee rolled 69 and wins round 2! Ann Lee, who strips?", Lines.Won("Ann Lee", 69, 2));

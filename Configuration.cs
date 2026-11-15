@@ -22,6 +22,9 @@ public sealed class Configuration : IPluginConfiguration
 
     public TextChannel TextChannel { get; set; } = TextChannel.Say;
 
+    /// <summary>Game tab shows the players seated round a circle (drag to reseat) instead of the table.</summary>
+    public bool CircleView { get; set; } = true;
+
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;

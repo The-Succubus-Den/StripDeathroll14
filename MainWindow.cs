@@ -6,7 +6,7 @@ using Dalamud.Interface.Windowing;
 
 namespace StripDeathroll14;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private readonly Plugin plugin;
     private string newName = "";
@@ -95,7 +95,15 @@ public sealed class MainWindow : Window
 
         DrawProposed();
         ImGui.Separator();
-        DrawPlayers(game);
+        DrawAddPlayers(game);
+        var circle = config.CircleView;
+        if (ImGui.RadioButton("Circle", circle)) { config.CircleView = true; plugin.SaveConfig(); }
+        ImGui.SameLine();
+        if (ImGui.RadioButton("List", !circle)) { config.CircleView = false; plugin.SaveConfig(); }
+        ImGui.SameLine();
+        ImGui.TextDisabled(circle ? "Clockwise from the top. Drag a seat to move it; right-click for more." : "Turn order runs down the list.");
+        if (circle) DrawCircle(game);
+        else DrawPlayers(game);
     }
 
     private void DrawPick(DeathrollGame game)
@@ -157,7 +165,7 @@ public sealed class MainWindow : Window
         if (ImGui.Button("Discard")) plugin.Proposed.Clear();
     }
 
-    private void DrawPlayers(DeathrollGame game)
+    private void DrawAddPlayers(DeathrollGame game)
     {
         ImGui.SetNextItemWidth(180);
         var enter = ImGui.InputTextWithHint("##name", "Forename Surname", ref newName, 32, ImGuiInputTextFlags.EnterReturnsTrue);
@@ -179,7 +187,10 @@ public sealed class MainWindow : Window
         }
 
         if (addNote.Length > 0) ImGui.TextDisabled(addNote);
+    }
 
+    private void DrawPlayers(DeathrollGame game)
+    {
         using var table = ImRaii.Table("##players", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.ScrollY);
         if (!table) return;
         ImGui.TableSetupScrollFreeze(0, 1);

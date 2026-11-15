@@ -33,6 +33,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 - **Private or Public** — a dropdown. Private room: calls go to `/s` and players roll `/random N`. Public: calls go to `/p` (or `/a` when you are in an alliance) and players roll `/dice party N` / `/dice alliance N`, so the rolls stay in the group. Rolls are read in every form either way.
 - **Calls in** — where your calls and results go: *Venue default* (as above), Say, Yell or Party.
 - **Player list** — add everyone in your party or alliance (cross-world parties included) with one button, add the player you have targeted with *Add target*, or type names in as `Forename Surname`. Remove (Ctrl+click) and move players up or down; the list *is* the turn order and the plugin never reorders it.
+- **Circle or List** — the Game tab seats the players round a circle by default, in turn order clockwise from the top: the player to roll is green with a pulsing ring, a green arrow points to whoever is up after them, the opener/starter is yellow, out players are dimmed, and each seat shows the pieces still worn as dots and the last roll. Drag a seat onto another to move that player there (the others shift round); right-click a seat to move it one place, remove it (hold Ctrl) or, in debug mode, roll for a dummy. *List* switches back to the table with the Up/Dn buttons.
 - **Opening roll (round 1)** — *Start round* proposes "everyone roll /random". When every active player has rolled, the highest is highlighted in yellow and goes first with a fresh `/random`; the turn then goes down the list from them and wraps round. The player next to roll is highlighted in green. The *Last roll* column shows each player's most recent roll in any round (greyed if it was not counted; hover for the round and note). A tie for first goes to whoever is higher in the list and is flagged, so you can restart the round for a roll-off.
 - **Turn calls** — it proposes `Name, roll /random` for the starter, then `Name, roll /random N`, where N is the previous player's roll, looping the list.
 - **Alerts** — a roll with the wrong number (`out of 999` when 532 was expected), a roll out of turn, a second opening roll, or a non-bare opening roll prints a `[Deathroll]` line in Echo and shows in red in the window. A wrong-number roll waits for you: *Accept* it or *Ask for reroll*.
@@ -68,6 +69,7 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 - **Venue** — Private room (say) or Public (party/alliance).
 - **Calls in** — Venue default, Say, Yell or Party.
 - **Auto-post** — off by default; on posts calls and results as they happen.
+- **Circle / List** — how the Game tab shows the players (Circle by default).
 - **Rules & Ad** — the two texts and the channel they go to (Say, Yell, Party).
 - **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), Say or Party.
 - **Debug mode** (Settings tab) — session only, never saved.
