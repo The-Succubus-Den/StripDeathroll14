@@ -524,3 +524,20 @@ public sealed class Outbox
 
     public void Clear() => waiting.Clear();
 }
+
+/// <summary>What changed since the last look, for the world markers' motion: new rolls and a hand-over of the turn.</summary>
+public sealed class TurnCues
+{
+    private int rolls = -1; // -1: not looked yet, so nothing before the first look replays
+    private Player? current;
+
+    public (List<RollRecord> Rolls, (Player From, Player To)? Handover) Take(DeathrollGame g)
+    {
+        var from = rolls < 0 || rolls > g.RollLog.Count ? g.RollLog.Count : rolls; // first look, or the log was cleared
+        var fresh = g.RollLog.GetRange(from, g.RollLog.Count - from);
+        rolls = g.RollLog.Count;
+        (Player, Player)? handover = current is { } a && g.Current is { } b && a != b ? (a, b) : null;
+        current = g.Current;
+        return (fresh, handover);
+    }
+}

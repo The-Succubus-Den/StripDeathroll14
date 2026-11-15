@@ -300,6 +300,12 @@ public sealed partial class MainWindow : Window
             Kos.HelpMarker("ImGui: drawn over everything, so the rings show through walls and other players.\n" +
                 "GPU: KosDraw's Direct3D path. Rings fade behind scenery and stay off the game's own UI.\n" +
                 "If a GPU part fails it switches itself off and ImGui draws that part instead.");
+            var motion = config.WorldMarkersMotion;
+            if (MaterialKos.Switch("Animate the markers", ref motion)) { config.WorldMarkersMotion = motion; plugin.SaveConfig(); }
+            ImGui.SameLine();
+            Kos.HelpMarker("A light circles the ring of whoever is up, each roll sends a ripple out from the roller\n" +
+                "(gold: a winning roll, grey: one that did not count) and a light runs along an arch to the next player.\n" +
+                "Off: the same marks, standing still.");
             var move = plugin.MovingRings;
             if (MaterialKos.Switch("Move the rings", ref move)) plugin.MovingRings = move;
             ImGui.SameLine();

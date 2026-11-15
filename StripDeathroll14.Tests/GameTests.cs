@@ -235,6 +235,33 @@ public class GameTests
     }
 
     [Fact]
+    public void TurnCuesReportNewRollsAndTheHandOverOnce()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        var cues = new TurnCues();
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 500, null);
+        Assert.Empty(cues.Take(g).Rolls); // the first look replays nothing
+        g.OnRoll(P(g, "Bo Ray"), 400, null); // Ann starts and is up
+        var (rolls, handover) = cues.Take(g);
+        Assert.Equal("Bo Ray", Assert.Single(rolls).Player);
+        Assert.Null(handover); // nobody was up before
+        g.OnRoll(P(g, "Ann Lee"), 300, null);
+        (rolls, handover) = cues.Take(g);
+        Assert.Single(rolls);
+        Assert.Equal((P(g, "Ann Lee"), P(g, "Bo Ray")), handover);
+        (rolls, handover) = cues.Take(g);
+        Assert.Empty(rolls);
+        Assert.Null(handover); // reported once
+
+        g.NewGame(); // the log is cleared
+        Assert.Empty(cues.Take(g).Rolls);
+        g.StartRound();
+        g.OnRoll(P(g, "Bo Ray"), 10, null);
+        Assert.Single(cues.Take(g).Rolls); // and new rolls show again
+    }
+
+    [Fact]
     public void WorldMarkersFollowTheGame()
     {
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");

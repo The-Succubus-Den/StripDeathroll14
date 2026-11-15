@@ -38,6 +38,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IObjectTable objects;
     private readonly IGameGui gameGui;
     private readonly KosOverlay overlay;
+    private readonly WorldMarkers markers = new();
     private readonly List<(Player Player, Vector3 At)> seen = []; // filled on the framework thread, drawn in Draw
     private readonly Dictionary<Player, Vector3> spots = []; // rings placed by hand; both threads are the main thread
     private readonly ReminderClock reminder = new();
@@ -363,9 +364,13 @@ public sealed class Plugin : IDalamudPlugin
     private void OnDraw()
     {
         windowSystem.Draw();
-        if (!Config.WorldMarkers || seen.Count == 0) return;
+        if (!Config.WorldMarkers || seen.Count == 0)
+        {
+            markers.Skip(Game);
+            return;
+        }
         overlay.UseGpu = Config.WorldMarkersGpu;
-        overlay.Draw(s => WorldMarkers.Build(s, Game, seen));
+        overlay.Draw(s => markers.Build(s, Game, seen, Environment.TickCount64 / 1000.0, Config.WorldMarkersMotion));
         if (MovingRings && window.IsOpen) DrawRingHandles();
     }
 

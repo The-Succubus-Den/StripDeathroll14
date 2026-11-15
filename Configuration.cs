@@ -28,6 +28,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Off by default: draw the world marks with KosDraw's Direct3D path (faded behind scenery) instead of ImGui.</summary>
     public bool WorldMarkersGpu { get; set; }
 
+    /// <summary>On by default: a gleam round whoever is up, a ripple from each roll and a light passing the turn on. Off: still marks.</summary>
+    public bool WorldMarkersMotion { get; set; } = true;
+
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;
