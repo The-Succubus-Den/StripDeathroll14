@@ -1,8 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Interface;
 using Dalamud.Interface.Colors;
-using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using KosLib;
@@ -69,7 +67,7 @@ public sealed partial class MainWindow : Window
         if (Combo("Calls in", config.CallChannel, Enum.GetValues<CallChannel>(), CallLabel, c => config.CallChannel = c)) plugin.SaveConfig();
 
         var auto = config.AutoPost;
-        if (ImGui.Checkbox("Auto-post", ref auto)) { config.AutoPost = auto; plugin.SaveConfig(); }
+        if (MaterialKos.Switch("Auto-post", ref auto)) { config.AutoPost = auto; plugin.SaveConfig(); }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Post calls and results as they happen ({config.SendMinSeconds}-{config.SendMaxSeconds} s apart). Off: they wait below for Post.");
         ImGui.SameLine();
         ImGui.SetNextItemWidth(120);
@@ -103,9 +101,9 @@ public sealed partial class MainWindow : Window
 
             if (game.Pending is { } pending && pending.Player == game.Current)
             {
-                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Check, $"Accept {pending.Value}")) plugin.AcceptPending();
+                if (MaterialKos.Button($"Accept {pending.Value}")) plugin.AcceptPending();
                 ImGui.SameLine();
-                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.RedoAlt, "Ask for reroll")) plugin.CallCurrent();
+                if (MaterialKos.Button("Ask for reroll", MaterialButton.Tonal)) plugin.CallCurrent();
             }
 
             if (game.Phase == Phase.Pick) DrawPick(game);
@@ -113,21 +111,21 @@ public sealed partial class MainWindow : Window
 
         using (ImRaii.Disabled(!game.CanStartRound))
         {
-            if (game.Phase == Phase.Setup ? Kos.PrimaryButton(FontAwesomeIcon.Play, "Start round") : ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Redo, "Restart round"))
+            if (game.Phase == Phase.Setup ? MaterialKos.Button("Start round") : MaterialKos.Button("Restart round", MaterialButton.Outlined))
                 plugin.StartRound();
         }
         ImGui.SameLine();
         var myRoll = plugin.MyRoll;
         using (ImRaii.Disabled(myRoll is null))
         {
-            if (Kos.IconButton(FontAwesomeIcon.Dice, myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}",
-                    "Your roll: a fresh /random to open or to start the turns, else up to the previous roll. /sdr roll does the same from a macro."))
-                plugin.RollForMe();
+            if (MaterialKos.Button(myRoll is null ? "Roll for me" : $"Roll for me: {myRoll}")) plugin.RollForMe();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip("Your roll: a fresh /random to open or to start the turns, else up to the previous roll. /sdr roll does the same from a macro.");
         }
         ImGui.SameLine();
-        using (ImRaii.Disabled(game.Current is null)) { if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Bullhorn, "Call again")) plugin.CallCurrent(); }
+        using (ImRaii.Disabled(game.Current is null)) { if (MaterialKos.Button("Call again", MaterialButton.Tonal)) plugin.CallCurrent(); }
         ImGui.SameLine();
-        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, "New game") && ImGui.GetIO().KeyCtrl) game.NewGame();
+        if (MaterialKos.Button("New game", MaterialButton.Text) && ImGui.GetIO().KeyCtrl) game.NewGame();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: everyone back to 3 pieces, history cleared.");
 
         DrawProposed();
@@ -161,21 +159,17 @@ public sealed partial class MainWindow : Window
         }
 
         if (pickTarget is null) return;
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(100);
-        using (var combo = ImRaii.Combo("##piece", pickPiece is { } shown ? shown.ToString() : "Piece"))
+        foreach (var piece in pickTarget.Worn) // one chip per piece still worn; picking one picks only that one
         {
-            if (combo)
-            {
-                foreach (var piece in pickTarget.Worn)
-                    if (ImGui.Selectable(piece.ToString(), piece == pickPiece)) pickPiece = piece;
-            }
+            ImGui.SameLine();
+            var on = piece == pickPiece;
+            if (MaterialKos.Chip($"{piece}##piece", ref on)) pickPiece = piece;
         }
 
         ImGui.SameLine();
         using (ImRaii.Disabled(pickPiece is null))
         {
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Check, "Confirm") && pickPiece is { } chosen)
+            if (MaterialKos.Button("Confirm") && pickPiece is { } chosen)
             {
                 plugin.Pick(pickTarget, chosen);
                 pickTarget = null;
@@ -196,9 +190,9 @@ public sealed partial class MainWindow : Window
         {
             ImGui.TextUnformatted($"To post in {plugin.CallPrefix}:");
             foreach (var line in plugin.Proposed) ImGui.BulletText(line);
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.PaperPlane, "Post")) plugin.PostProposed();
+            if (MaterialKos.Button("Post")) plugin.PostProposed();
             ImGui.SameLine();
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Times, "Discard")) plugin.Proposed.Clear();
+            if (MaterialKos.Button("Discard", MaterialButton.Text)) plugin.Proposed.Clear();
         });
     }
 
@@ -207,20 +201,20 @@ public sealed partial class MainWindow : Window
         ImGui.SetNextItemWidth(180);
         var enter = ImGui.InputTextWithHint("##name", "Forename Surname", ref newName, 32, ImGuiInputTextFlags.EnterReturnsTrue);
         ImGui.SameLine();
-        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Plus, "Add") || enter)
+        if (MaterialKos.Button("Add", MaterialButton.Tonal) || enter)
         {
             addNote = game.Add(newName) ? "" : "Needs Forename Surname (letters, ' or -), not already listed.";
             if (addNote.Length == 0) newName = "";
         }
 
         ImGui.SameLine();
-        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Crosshairs, "Add target")) addNote = plugin.AddTarget();
+        if (MaterialKos.Button("Add target", MaterialButton.Tonal)) addNote = plugin.AddTarget();
         ImGui.SameLine();
-        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Users, "Add party/alliance")) addNote = $"Added {plugin.AddGroup()} player(s).";
+        if (MaterialKos.Button("Add party/alliance", MaterialButton.Tonal)) addNote = $"Added {plugin.AddGroup()} player(s).";
         if (plugin.DebugMode)
         {
             ImGui.SameLine();
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Robot, "Add dummy")) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
+            if (MaterialKos.Button("Add dummy", MaterialButton.Outlined)) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
         }
 
         if (addNote.Length > 0) ImGui.TextDisabled(addNote);
@@ -338,9 +332,9 @@ public sealed partial class MainWindow : Window
         Kos.Section(label);
         if (ImGui.InputTextMultiline($"##{label}", ref value, 4000, new Vector2(-1, 110))) set(value);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
-        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Bullhorn, $"Post {label.ToLowerInvariant()}")) plugin.PostText(value);
+        if (MaterialKos.Button($"Post {label.ToLowerInvariant()}", MaterialButton.Tonal)) plugin.PostText(value);
         ImGui.SameLine();
-        if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Undo, $"Default##{label}")) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
+        if (MaterialKos.Button($"Default##{label}", MaterialButton.Text)) { set(defaultValue); plugin.SaveConfig(); } // a saved text never picks up a new default by itself
     }
 
     private void DrawSettings()
@@ -348,7 +342,7 @@ public sealed partial class MainWindow : Window
         var config = plugin.Config;
         Kos.Section("Reminder", "01");
         var on = config.ReminderEnabled;
-        if (ImGui.Checkbox("Remind whoever has not rolled", ref on)) { config.ReminderEnabled = on; plugin.SaveConfig(); }
+        if (MaterialKos.Switch("Remind whoever has not rolled", ref on)) { config.ReminderEnabled = on; plugin.SaveConfig(); }
         var secs = config.ReminderSeconds;
         ImGui.SetNextItemWidth(200);
         if (ImGui.SliderInt("Seconds of quiet", ref secs, Configuration.MinReminderSeconds, 120))
@@ -361,7 +355,7 @@ public sealed partial class MainWindow : Window
 
         Kos.Section("World markers", "02");
         var world = config.WorldMarkers;
-        if (ImGui.Checkbox("Mark the players in the world", ref world)) { config.WorldMarkers = world; plugin.SaveConfig(); }
+        if (MaterialKos.Switch("Mark the players in the world", ref world)) { config.WorldMarkers = world; plugin.SaveConfig(); }
         using (ImRaii.Disabled(!config.WorldMarkers))
         {
             var mode = config.WorldMarkersGpu ? 1 : 0;
@@ -377,7 +371,7 @@ public sealed partial class MainWindow : Window
 
         Kos.Section("Debug", "03");
         var debug = plugin.DebugMode;
-        if (ImGui.Checkbox("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
+        if (MaterialKos.Switch("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
         ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +
             "While it is on, calls, results, reminders and the rules/ad print to Echo instead of chat; Roll for me still rolls.\n" +
             "Turning it off removes the dummies.");
