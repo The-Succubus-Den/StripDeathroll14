@@ -127,6 +127,12 @@ public sealed class DeathrollGame
 
     public static bool IsEnding(int roll) => roll is 1 or 69 or 666;
 
+    /// <summary>The player's most recent roll this game, any round, counted or not; null before their first.</summary>
+    public RollRecord? LastRoll(Player p) => RollLog.LastOrDefault(r => r.Player == p.Name);
+
+    /// <summary>Rolls that changed nothing: shown greyed.</summary>
+    public static bool NotCounted(RollNote n) => n is RollNote.OpeningRepeat or RollNote.OpeningWrongNumber or RollNote.OutOfTurn or RollNote.WrongNumber;
+
     public Player? Find(string rawName) => Players.FirstOrDefault(p => Names.Matches(p.Name, rawName));
 
     public bool Add(string name, bool dummy = false)

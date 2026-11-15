@@ -515,6 +515,29 @@ public class GameTests
         Assert.Equal(RollOutcome.Ignored, g.OnRoll(P(g, "Ann Lee"), 5, null));
     }
 
+    [Fact]
+    public void LastRollIsTheMostRecentRollAcrossRounds()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        Assert.Null(g.LastRoll(P(g, "Ann Lee")));
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        g.OnRoll(P(g, "Bo Ray"), 5, null);
+        Assert.Equal(900, g.LastRoll(P(g, "Ann Lee"))!.Value);  // opening
+        g.OnRoll(P(g, "Bo Ray"), 7, 999);                        // out of turn: still their last roll, shown greyed
+        Assert.Equal(RollNote.OutOfTurn, g.LastRoll(P(g, "Bo Ray"))!.Note);
+        Assert.True(DeathrollGame.NotCounted(RollNote.OutOfTurn));
+        g.OnRoll(P(g, "Ann Lee"), 400, null);
+        g.OnRoll(P(g, "Bo Ray"), 69, 400);
+        g.Pick(P(g, "Ann Lee"));
+        Assert.Equal(new RollRecord(1, "Bo Ray", 69, 400, RollNote.Won), g.LastRoll(P(g, "Bo Ray")));
+        g.OnRoll(P(g, "Ann Lee"), 321, null);                    // round 2, no opening: the column keeps updating
+        Assert.Equal(new RollRecord(2, "Ann Lee", 321, null, RollNote.Counted), g.LastRoll(P(g, "Ann Lee")));
+        Assert.False(DeathrollGame.NotCounted(RollNote.Counted));
+        g.NewGame();
+        Assert.Null(g.LastRoll(P(g, "Ann Lee")));
+    }
+
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
         if (g.Phase != Phase.Opening) g.StartRound();

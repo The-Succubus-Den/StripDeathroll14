@@ -330,8 +330,8 @@ public sealed class Plugin : IDalamudPlugin
         if (!clientState.IsLoggedIn) return;
         var now = Environment.TickCount64;
 
-        // No reminder while a call is still waiting for Post: the player has not been asked yet.
-        var waitKey = Config.ReminderEnabled && Proposed.Count == 0 ? Game.WaitingKey : null;
+        // Driven by the game state alone: an unposted call in the Post list must not hold reminders back mid-game.
+        var waitKey = Config.ReminderEnabled ? Game.WaitingKey : null;
         if (reminder.Due(waitKey, now, Config.ReminderSeconds * 1000)) Remind();
 
         if (outbox.Count == 0 || now < nextSendAt) return;

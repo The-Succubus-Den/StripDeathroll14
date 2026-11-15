@@ -174,7 +174,7 @@ public sealed class MainWindow : Window
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 22);
         ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Opening", ImGuiTableColumnFlags.WidthFixed, 58);
+        ImGui.TableSetupColumn("Last roll", ImGuiTableColumnFlags.WidthFixed, 58);
         ImGui.TableSetupColumn("Wearing", ImGuiTableColumnFlags.WidthFixed, 130);
         ImGui.TableSetupColumn("Wins", ImGuiTableColumnFlags.WidthFixed, 36);
         ImGui.TableSetupColumn("##edit", ImGuiTableColumnFlags.WidthFixed, plugin.DebugMode ? 150 : 88);
@@ -196,8 +196,12 @@ public sealed class MainWindow : Window
             else if (top) ImGui.TextColored(ImGuiColors.DalamudYellow, label);
             else ImGui.TextUnformatted(label);
             ImGui.TableNextColumn();
-            if (top) ImGui.TextColored(ImGuiColors.DalamudYellow, p.Opening?.ToString() ?? "-");
-            else ImGui.TextUnformatted(p.Opening?.ToString() ?? "-");
+            var last = game.LastRoll(p);
+            var lastText = last?.Value.ToString() ?? "-";
+            if (last is { } lr && DeathrollGame.NotCounted(lr.Note)) ImGui.TextDisabled(lastText);
+            else if (top) ImGui.TextColored(ImGuiColors.DalamudYellow, lastText);
+            else ImGui.TextUnformatted(lastText);
+            if (last is { } l && ImGui.IsItemHovered()) ImGui.SetTooltip($"Round {l.Round}: {l.Value} out of {l.Max ?? DeathrollGame.OpeningMax} ({NoteLabel(l.Note)})");
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(Worn(p));
             ImGui.TableNextColumn();
@@ -292,7 +296,7 @@ public sealed class MainWindow : Window
         ImGui.SetNextItemWidth(120);
         if (Combo("Remind in", config.ReminderChannel, [TextChannel.Say, TextChannel.Party], c => c.ToString(), c => config.ReminderChannel = c)) plugin.SaveConfig();
         ImGui.TextDisabled($"Posts \"Reminder: Name, it's your turn - roll ...\" (or lists everyone missing an opening roll) after that long\n" +
-            $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn. Never while a call is waiting for Post or a wrong roll waits for you.");
+            $"with no roll, at most {ReminderClock.MaxPerTurn} times per turn, whether or not the call was posted. Not while a wrong roll waits for you.");
 
         ImGui.Separator();
         ImGui.TextUnformatted("Debug");
