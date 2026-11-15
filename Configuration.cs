@@ -5,13 +5,23 @@ namespace StripDeathroll14;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
+    public const int MinReminderSeconds = 15; // floor: never nag faster than this
+
     public int Version { get; set; } = 1;
     public Venue Venue { get; set; } = Venue.Private;
+
+    /// <summary>Where calls and results go; Venue = say in a private room, party/alliance in public.</summary>
+    public CallChannel CallChannel { get; set; } = CallChannel.Venue;
 
     /// <summary>Off by default: calls and results wait in the window for a Post press.</summary>
     public bool AutoPost { get; set; }
 
     public TextChannel TextChannel { get; set; } = TextChannel.Say;
+
+    /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
+    public bool ReminderEnabled { get; set; }
+    public int ReminderSeconds { get; set; } = 30;
+    public TextChannel ReminderChannel { get; set; } = TextChannel.Say; // Say or Party only
 
     public string RulesText { get; set; } =
         "Strip Deathroll! Everyone rolls /random to start; highest goes first, then down the list.\n" +
@@ -26,6 +36,9 @@ public sealed class Configuration : IPluginConfiguration
     {
         if (!Enum.IsDefined(Venue)) Venue = Venue.Private;
         if (!Enum.IsDefined(TextChannel)) TextChannel = TextChannel.Say;
+        if (!Enum.IsDefined(CallChannel)) CallChannel = CallChannel.Venue;
+        if (ReminderChannel is not (TextChannel.Say or TextChannel.Party)) ReminderChannel = TextChannel.Say;
+        ReminderSeconds = Math.Clamp(ReminderSeconds, MinReminderSeconds, 120);
         RulesText ??= "";
         AdText ??= "";
     }

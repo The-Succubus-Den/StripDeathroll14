@@ -1,4 +1,5 @@
 using Dalamud.Game.Chat;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
@@ -30,6 +31,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IPlayerState playerState;
     private readonly IFramework framework;
     private readonly IPartyList partyList;
+    private readonly ITargetManager targetManager;
+    private readonly ReminderClock reminder = new();
     private readonly WindowSystem windowSystem = new("StripDeathroll14");
     private readonly MainWindow window;
     private readonly Queue<(string? Prefix, string Text, bool FreeText)> outbox = new();
@@ -47,6 +50,9 @@ public sealed class Plugin : IDalamudPlugin
     public string? LastAlert { get; private set; }
     public int Queued => outbox.Count;
 
+    /// <summary>Session only: dummy players, and every post goes to Echo instead of chat.</summary>
+    public bool DebugMode { get; private set; }
+
     public Plugin(
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
@@ -54,7 +60,8 @@ public sealed class Plugin : IDalamudPlugin
         IClientState clientState,
         IPlayerState playerState,
         IFramework framework,
-        IPartyList partyList)
+        IPartyList partyList,
+        ITargetManager targetManager)
     {
         this.pluginInterface = pluginInterface;
         this.commandManager = commandManager;
@@ -63,6 +70,7 @@ public sealed class Plugin : IDalamudPlugin
         this.playerState = playerState;
         this.framework = framework;
         this.partyList = partyList;
+        this.targetManager = targetManager;
 
         Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Config.Normalize();
@@ -104,6 +112,7 @@ public sealed class Plugin : IDalamudPlugin
     public string MyName => playerState.CharacterName;
     public bool InAlliance => partyList.IsAlliance;
     public string RollCommand(int? n) => Lines.RollCommand(Config.Venue, InAlliance, n);
+    public string CallPrefix => Lines.CallPrefix(Config.CallChannel, Config.Venue, InAlliance);
 
     // ---- host actions (all from button presses) ----
 
@@ -113,10 +122,10 @@ public sealed class Plugin : IDalamudPlugin
         if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null)));
     }
 
-    public void Pick(Player target)
+    public void Pick(Player target, Piece piece)
     {
-        if (!Game.Pick(target)) return;
-        Propose(Lines.Stripped(target.Name, target.Lives));
+        if (!Game.Pick(target, piece)) return;
+        Propose(Lines.Stripped(target.Name, piece, target.Lives));
         if (Game.Phase == Phase.GameOver) Propose(Lines.GameOver(Game.Active.First().Name));
         else if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null)));
     }
@@ -148,7 +157,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void PostProposed()
     {
-        foreach (var line in Proposed) Enqueue(Lines.AnnouncePrefix(Config.Venue, InAlliance), line, false);
+        foreach (var line in Proposed) Enqueue(CallPrefix, line, false);
         Proposed.Clear();
     }
 
@@ -169,7 +178,31 @@ public sealed class Plugin : IDalamudPlugin
 
         AddCrossWorldParty(names);
         if (names.Count == 0 && MyName.Length > 0) names.Add(MyName);
-        return names.Count(Game.Add); // Add validates each name and skips duplicates
+        return names.Count(n => Game.Add(n)); // Add validates each name and skips duplicates
+    }
+
+    /// <summary>Adds your current in-game target; returns a note for the window.</summary>
+    public string AddTarget()
+    {
+        if (targetManager.Target is not IPlayerCharacter pc) return "Target a player first.";
+        var name = pc.Name.TextValue;
+        return Game.Add(name) ? $"Added {name}." : $"{name} is already listed.";
+    }
+
+    public void SetDebugMode(bool on)
+    {
+        DebugMode = on;
+        if (!on) Game.RemoveDummies(); // dummies never reach a real game
+    }
+
+    /// <summary>Debug mode: rolls for a dummy as if it came from chat. one = force a 1 to end the round.</summary>
+    public void SimulateRoll(Player dummy, bool one)
+    {
+        if (!DebugMode || !dummy.IsDummy) return;
+        int? max = Game.Phase == Phase.Opening ? null : Game.Limit;
+        var value = one ? 1 : Random.Shared.Next(1, (max ?? DeathrollGame.OpeningMax) + 1);
+        chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll debug] {dummy.Name} rolls {value} (out of {max ?? DeathrollGame.OpeningMax})" });
+        Receive(dummy, value, max);
     }
 
     // A cross-world party is not in IPartyList; read the local group from the cross-realm proxy (read-only).
@@ -188,12 +221,18 @@ public sealed class Plugin : IDalamudPlugin
 
     private void Propose(string line)
     {
-        if (Config.AutoPost) Enqueue(Lines.AnnouncePrefix(Config.Venue, InAlliance), line, false);
+        if (Config.AutoPost) Enqueue(CallPrefix, line, false);
         else Proposed.Add(line);
     }
 
     private void Enqueue(string prefix, string line, bool freeText)
     {
+        if (DebugMode)
+        {
+            chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll debug, not sent] {prefix} {line}" });
+            return;
+        }
+
         if (Lines.IsSendable(line)) outbox.Enqueue((prefix, line, freeText));
         else Alert($"Not sent (too long, starts with /, or has a line break): {line}");
     }
@@ -224,9 +263,13 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         if (roll is not { } r || name is null) return;
-        var player = Game.Find(name);
-        var outcome = Game.OnRoll(player, r.Value, r.Max);
-        var shownMax = (r.Max ?? DeathrollGame.OpeningMax).ToString();
+        Receive(Game.Find(name), r.Value, r.Max);
+    }
+
+    private void Receive(Player? player, int value, int? max)
+    {
+        var outcome = Game.OnRoll(player, value, max);
+        var shownMax = (max ?? DeathrollGame.OpeningMax).ToString();
         switch (outcome)
         {
             case RollOutcome.OpeningWrongMax:
@@ -239,7 +282,7 @@ public sealed class Plugin : IDalamudPlugin
                 Alert($"{player!.Name} rolled out of turn ({Game.Current?.Name} is up). Ignored.");
                 break;
             case RollOutcome.WrongMax:
-                Alert($"{player!.Name} rolled {r.Value} out of {shownMax}, expected {RollCommand(Game.Limit)}. Accept it or ask for a reroll.");
+                Alert($"{player!.Name} rolled {value} out of {shownMax}, expected {RollCommand(Game.Limit)}. Accept it or ask for a reroll.");
                 break;
             default:
                 Handle(outcome);
@@ -252,7 +295,7 @@ public sealed class Plugin : IDalamudPlugin
         switch (outcome)
         {
             case RollOutcome.OrderSet:
-                if (Game.OpeningTie) Alert("Tie for the highest opening roll: rearrange the list if needed, then Call.");
+                if (Game.OpeningTie) Alert($"Tie for the highest opening roll: {Game.Starter?.Name} starts as the first of them in the list. Restart the round for a roll-off.");
                 CallCurrent();
                 break;
             case RollOutcome.Next:
@@ -262,6 +305,14 @@ public sealed class Plugin : IDalamudPlugin
                 Propose(Lines.Won(Game.Winner!.Name, Game.WinningRoll, Game.Round));
                 break;
         }
+    }
+
+    private void Remind()
+    {
+        var names = Game.Waiting.Select(p => p.Name).ToList();
+        if (names.Count == 0) return;
+        var opening = Game.Phase == Phase.Opening;
+        Enqueue(Lines.TextPrefix(Config.ReminderChannel), Lines.Reminder(names, RollCommand(opening ? null : Game.Limit), opening), false);
     }
 
     private static string? PlayerName(SeString s) => s.Payloads.OfType<PlayerPayload>().FirstOrDefault()?.PlayerName;
@@ -274,9 +325,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnUpdate(IFramework _)
     {
-        if (!clientState.IsLoggedIn || outbox.Count == 0) return;
+        if (!clientState.IsLoggedIn) return;
         var now = Environment.TickCount64;
-        if (now < nextSendAt) return;
+
+        // No reminder while a call is still waiting for Post: the player has not been asked yet.
+        var waitKey = Config.ReminderEnabled && Proposed.Count == 0 ? Game.WaitingKey : null;
+        if (reminder.Due(waitKey, now, Config.ReminderSeconds * 1000)) Remind();
+
+        if (outbox.Count == 0 || now < nextSendAt) return;
 
         var (prefix, text, freeText) = outbox.Dequeue();
         if (freeText && !IsClean(text))

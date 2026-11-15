@@ -17,6 +17,23 @@ public enum TextChannel
     Party = 2,
 }
 
+/// <summary>Where the host's calls and results go. Saved as a number: never renumber, only append.</summary>
+public enum CallChannel
+{
+    Venue = 0, // say in a private room; party, or alliance when in one, in public
+    Say = 1,
+    Yell = 2,
+    Party = 3,
+}
+
+/// <summary>What a player wears; the winner's pick takes one off.</summary>
+public enum Piece
+{
+    Top = 0,
+    Bottom = 1,
+    Shoes = 2,
+}
+
 public enum Phase { Setup, Opening, Turns, Pick, GameOver }
 
 public enum RollOutcome
@@ -32,30 +49,57 @@ public enum RollOutcome
     Won,
 }
 
+/// <summary>What became of one roll, for the history.</summary>
+public enum RollNote
+{
+    Opening,
+    OpeningWrongNumber, // not counted
+    OpeningRepeat,      // ignored
+    OutOfTurn,          // ignored
+    WrongNumber,        // waiting for the host, or not counted if they rerolled
+    Accepted,           // a wrong number the host accepted
+    Counted,
+    Won,
+}
+
 public sealed class Player
 {
     public string Name { get; set; } = "";
-    public int Lives { get; set; } = DeathrollGame.StartLives;
+    public List<Piece> Worn { get; } = [.. DeathrollGame.AllPieces];
+    public int Lives => Worn.Count;
     public int Wins { get; set; }
     public int? Opening { get; set; }
+    public bool IsDummy { get; init; }
     public bool Out => Lives <= 0;
 }
 
-public sealed record RoundRecord(int Round, string Winner, int WinningRoll, string Target, int TargetLivesLeft);
+public sealed record RoundRecord(int Round, string Winner, int WinningRoll, string Target, Piece Piece, int TargetLivesLeft);
 
-public readonly record struct PendingRoll(Player Player, int Value, int? Max);
+public sealed record RollRecord(int Round, string Player, int Value, int? Max, RollNote Note);
+
+public readonly record struct PendingRoll(Player Player, int Value, int? Max, int LogIndex);
 
 /// <summary>Pure Strip Deathroll state: no Dalamud types, so the test project compiles it as is.</summary>
 public sealed class DeathrollGame
 {
-    public const int StartLives = 3;
+    public static readonly Piece[] AllPieces = [Piece.Top, Piece.Bottom, Piece.Shoes];
+    public static readonly int StartLives = AllPieces.Length;
     public const int OpeningMax = 999; // what a bare /random rolls up to
+
+    // Debug-mode stand-ins; valid "Forename Surname" names so every code path treats them like players.
+    public static readonly string[] DummyNames =
+        ["Dummy Alpha", "Dummy Bravo", "Dummy Charlie", "Dummy Delta", "Dummy Echo", "Dummy Foxtrot", "Dummy Golf", "Dummy Hotel"];
+
+    private int turnSerial;
 
     public List<Player> Players { get; } = [];
     public List<RoundRecord> History { get; } = [];
+    public List<RollRecord> RollLog { get; } = [];
     public Phase Phase { get; private set; } = Phase.Setup;
     public int Round { get; private set; }
     public Player? Current { get; private set; }
+    /// <summary>The highest opening roll this round; they started the turns. Highlighted, the list is never reordered.</summary>
+    public Player? Starter { get; private set; }
     /// <summary>The number the current player rolls to; null = a fresh /random (the player starting the turns).</summary>
     public int? Limit { get; private set; }
     public Player? Winner { get; private set; }
@@ -65,24 +109,49 @@ public sealed class DeathrollGame
 
     public IEnumerable<Player> Active => Players.Where(p => !p.Out);
 
+    /// <summary>Who the game is waiting on: everyone without an opening roll, or the current player.</summary>
+    public IEnumerable<Player> Waiting => Phase switch
+    {
+        Phase.Opening => Active.Where(p => p.Opening is null),
+        Phase.Turns when Pending is null && Current is not null => [Current],
+        _ => [],
+    };
+
+    /// <summary>Changes whenever the game moves on; null when no roll is awaited. Drives the reminder clock.</summary>
+    public string? WaitingKey => Phase switch
+    {
+        Phase.Opening => $"{Round}/o/{string.Join(",", Waiting.Select(p => p.Name))}",
+        Phase.Turns when Pending is null && Current is not null => $"{Round}/t/{turnSerial}",
+        _ => null,
+    };
+
     public static bool IsEnding(int roll) => roll is 1 or 69 or 666;
 
     public Player? Find(string rawName) => Players.FirstOrDefault(p => Names.Matches(p.Name, rawName));
 
-    public bool Add(string name)
+    public bool Add(string name, bool dummy = false)
     {
         name = name.Trim();
         if (!Names.IsValid(name) || Players.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))) return false;
-        Players.Add(new Player { Name = name });
+        Players.Add(new Player { Name = name, IsDummy = dummy });
         return true;
+    }
+
+    public bool AddDummy() => DummyNames.Any(n => Add(n, true));
+
+    public void RemoveDummies()
+    {
+        foreach (var d in Players.Where(p => p.IsDummy).ToList()) Remove(d);
     }
 
     public void Remove(Player p)
     {
         if (Current == p) Current = Players.Count > 1 ? NextActive(p) : null;
+        if (Starter == p) Starter = null;
         if (Winner == p) { Winner = null; Phase = Phase.Setup; }
         if (Pending?.Player == p) Pending = null;
         Players.Remove(p);
+        turnSerial++;
         if (Phase == Phase.Opening && Active.Any() && Active.All(x => x.Opening is not null)) SetOrder();
         if (Phase is Phase.Opening or Phase.Turns or Phase.Pick && Active.Count() < 2) { Phase = Phase.Setup; Current = null; }
     }
@@ -103,7 +172,7 @@ public sealed class DeathrollGame
         foreach (var p in Players) p.Opening = null;
         Round++;
         Phase = Phase.Opening;
-        Current = Winner = null;
+        Current = Winner = Starter = null;
         Limit = null;
         Pending = null;
         OpeningTie = false;
@@ -111,63 +180,85 @@ public sealed class DeathrollGame
 
     public void NewGame()
     {
-        foreach (var p in Players) { p.Lives = StartLives; p.Wins = 0; p.Opening = null; }
+        foreach (var p in Players)
+        {
+            p.Worn.Clear();
+            p.Worn.AddRange(AllPieces);
+            p.Wins = 0;
+            p.Opening = null;
+        }
+
         History.Clear();
+        RollLog.Clear();
         Round = 0;
         Phase = Phase.Setup;
-        Current = Winner = null;
+        Current = Winner = Starter = null;
+        Limit = null;
         Pending = null;
         OpeningTie = false;
     }
 
-    /// <summary>A roll read from chat. <paramref name="max"/> is null for a bare /random.</summary>
+    /// <summary>A roll read from chat (or simulated for a dummy). <paramref name="max"/> is null for a bare /random.</summary>
     public RollOutcome OnRoll(Player? p, int value, int? max)
     {
         if (p is null || p.Out) return RollOutcome.Ignored;
 
         if (Phase == Phase.Opening)
         {
-            if (p.Opening is not null) return RollOutcome.AlreadyRolled;
-            if (max is not (null or OpeningMax)) return RollOutcome.OpeningWrongMax; // not recorded: reroll a bare /random
+            if (p.Opening is not null) { Log(p, value, max, RollNote.OpeningRepeat); return RollOutcome.AlreadyRolled; }
+            if (max is not (null or OpeningMax)) { Log(p, value, max, RollNote.OpeningWrongNumber); return RollOutcome.OpeningWrongMax; }
             p.Opening = value;
+            Log(p, value, max, RollNote.Opening);
             if (Active.All(x => x.Opening is not null)) { SetOrder(); return RollOutcome.OrderSet; }
             return RollOutcome.OpeningRecorded;
         }
 
         if (Phase != Phase.Turns) return RollOutcome.Ignored;
-        if (p != Current) return RollOutcome.OutOfTurn;
+        if (p != Current) { Log(p, value, max, RollNote.OutOfTurn); return RollOutcome.OutOfTurn; }
         if (Limit is null ? max is not (null or OpeningMax) : max != Limit)
         {
-            Pending = new PendingRoll(p, value, max);
+            Pending = new PendingRoll(p, value, max, Log(p, value, max, RollNote.WrongNumber));
             return RollOutcome.WrongMax;
         }
 
-        return Apply(value);
+        return Apply(value, Log(p, value, max, RollNote.Counted), RollNote.Counted);
     }
 
     public RollOutcome AcceptPending()
     {
         if (Pending is not { } pending || Phase != Phase.Turns || pending.Player != Current) return RollOutcome.Ignored;
-        return Apply(pending.Value);
+        return Apply(pending.Value, pending.LogIndex, RollNote.Accepted);
     }
 
-    /// <summary>The winner names who strips. Returns false when the pick is not allowed.</summary>
-    public bool Pick(Player target)
+    /// <summary>The winner names who strips (themselves included) and which piece. False when the pick is not allowed.</summary>
+    public bool Pick(Player target, Piece piece)
     {
-        if (Phase != Phase.Pick || Winner is null || target == Winner || target.Out || !Players.Contains(target)) return false;
+        if (Phase != Phase.Pick || Winner is null || target.Out || !Players.Contains(target) || !target.Worn.Contains(piece)) return false;
         Winner.Wins++;
-        target.Lives--;
-        History.Add(new RoundRecord(Round, Winner.Name, WinningRoll, target.Name, target.Lives));
+        target.Worn.Remove(piece);
+        History.Add(new RoundRecord(Round, Winner.Name, WinningRoll, target.Name, piece, target.Lives));
         if (Active.Count() <= 1) { Phase = Phase.GameOver; return true; }
         Phase = Phase.Setup;
         StartRound();
         return true;
     }
 
-    private RollOutcome Apply(int value)
+    /// <summary>Pick with the first piece the target still wears.</summary>
+    public bool Pick(Player target) => target.Worn.Count > 0 && Pick(target, target.Worn[0]);
+
+    private int Log(Player p, int value, int? max, RollNote note)
+    {
+        RollLog.Add(new RollRecord(Round, p.Name, value, max, note));
+        return RollLog.Count - 1;
+    }
+
+    private RollOutcome Apply(int value, int logIndex, RollNote note)
     {
         Pending = null;
-        if (IsEnding(value))
+        turnSerial++;
+        var ending = IsEnding(value);
+        RollLog[logIndex] = RollLog[logIndex] with { Note = ending ? RollNote.Won : note };
+        if (ending)
         {
             Winner = Current;
             WinningRoll = value;
@@ -180,17 +271,14 @@ public sealed class DeathrollGame
         return RollOutcome.Next;
     }
 
-    // Opening rolls high to low decide the order; the list itself is the turn order, so the host can still rearrange it.
+    // The highest opening roll starts; the turn then goes down the list as the host arranged it (never reordered).
     private void SetOrder()
     {
-        var active = Active.OrderByDescending(p => p.Opening).ToList(); // stable: ties keep list order
-        var outs = Players.Where(p => p.Out).ToList();
-        Players.Clear();
-        Players.AddRange(active);
-        Players.AddRange(outs);
-        OpeningTie = active.Count > 1 && active[0].Opening == active[1].Opening;
-        Current = active[0];
+        var top = Active.MaxBy(p => p.Opening)!; // MaxBy keeps the first of equal keys: list order breaks a tie
+        OpeningTie = Active.Count(p => p.Opening == top.Opening) > 1;
+        Starter = Current = top;
         Limit = null; // the starting player rolls a fresh /random
+        turnSerial++;
         Phase = Phase.Turns;
     }
 
@@ -204,6 +292,32 @@ public sealed class DeathrollGame
         }
 
         return null;
+    }
+}
+
+/// <summary>Fires a reminder after a quiet interval, at most MaxPerTurn times for one wait; any change of key restarts it.</summary>
+public sealed class ReminderClock
+{
+    public const int MaxPerTurn = 3;
+    private string? key;
+    private long dueAt;
+
+    public int Sent { get; private set; }
+
+    public bool Due(string? stateKey, long now, int intervalMs)
+    {
+        if (stateKey != key)
+        {
+            key = stateKey;
+            dueAt = now + intervalMs;
+            Sent = 0;
+            return false;
+        }
+
+        if (key is null || Sent >= MaxPerTurn || now < dueAt) return false;
+        Sent++;
+        dueAt = now + intervalMs;
+        return true;
     }
 }
 
@@ -281,6 +395,14 @@ public static class Lines
 
     public static string AnnouncePrefix(Venue venue, bool alliance) => venue == Venue.Private ? "/s" : alliance ? "/a" : "/p";
 
+    public static string CallPrefix(CallChannel c, Venue venue, bool alliance) => c switch
+    {
+        CallChannel.Say => "/s",
+        CallChannel.Yell => "/y",
+        CallChannel.Party => "/p",
+        _ => AnnouncePrefix(venue, alliance),
+    };
+
     public static string TextPrefix(TextChannel c) => c switch
     {
         TextChannel.Yell => "/y",
@@ -294,9 +416,19 @@ public static class Lines
 
     public static string Won(string winner, int roll, int round) => $"{winner} rolled {roll} and wins round {round}! {winner}, who strips?";
 
-    public static string Stripped(string target, int livesLeft) => livesLeft > 0
-        ? $"{target} strips! {livesLeft} {(livesLeft == 1 ? "piece" : "pieces")} left."
-        : $"{target} strips the last piece and is out!";
+    public static string PieceName(Piece p) => p.ToString().ToLowerInvariant();
+
+    public static string Stripped(string target, Piece piece, int livesLeft) => livesLeft > 0
+        ? $"{target} loses their {PieceName(piece)}! {livesLeft} {(livesLeft == 1 ? "piece" : "pieces")} left."
+        : $"{target} loses their {PieceName(piece)}, the last piece, and is out!";
+
+    /// <summary>The timed nudge; a long opening list is cut so the line stays short.</summary>
+    public static string Reminder(IReadOnlyList<string> names, string cmd, bool opening)
+    {
+        if (!opening) return $"Reminder: {names[0]}, it's your turn - roll {cmd}";
+        var shown = string.Join(", ", names.Take(6)) + (names.Count > 6 ? $" and {names.Count - 6} more" : "");
+        return $"Still waiting on {shown}: roll {cmd} to start the round.";
+    }
 
     public static string GameOver(string name) => $"{name} is the last one standing and wins Strip Deathroll!";
 

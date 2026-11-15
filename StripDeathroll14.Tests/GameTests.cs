@@ -85,7 +85,7 @@ public class GameTests
         WinRoundNoPick(g, "Ann Lee");
         Assert.False(g.Pick(P(g, "Bo Ray")));                 // out
         Assert.False(g.Pick(new Player { Name = "Zed Zee" })); // not on the list
-        Assert.Empty(g.History.Where(r => r.Round == g.Round));
+        Assert.DoesNotContain(g.History, r => r.Round == g.Round);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class GameTests
     }
 
     [Fact]
-    public void OpeningSetsOrderHighToLowAndStarterRollsFresh()
+    public void HighestOpeningStartsListIsNeverReordered()
     {
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
         g.StartRound();
@@ -142,10 +142,16 @@ public class GameTests
         Assert.Null(P(g, "Bo Ray").Opening);
         Assert.Equal(RollOutcome.OpeningRecorded, g.OnRoll(P(g, "Bo Ray"), 812, 999));
         Assert.Equal(RollOutcome.OrderSet, g.OnRoll(P(g, "Cy Dee"), 400, null));
-        Assert.Equal(["Bo Ray", "Cy Dee", "Ann Lee"], g.Players.Select(p => p.Name));
+        Assert.Equal(["Ann Lee", "Bo Ray", "Cy Dee"], g.Players.Select(p => p.Name)); // list untouched
         Assert.Equal("Bo Ray", g.Current!.Name);
+        Assert.Equal("Bo Ray", g.Starter!.Name);
         Assert.Null(g.Limit); // the starter rolls a fresh /random, not up to their opening roll
         Assert.False(g.OpeningTie);
+        g.OnRoll(P(g, "Bo Ray"), 300, null);
+        Assert.Equal("Cy Dee", g.Current!.Name); // then down the list from the starter
+        g.OnRoll(P(g, "Cy Dee"), 200, 300);
+        Assert.Equal("Ann Lee", g.Current!.Name); // and round to the top
+        Assert.Equal("Bo Ray", g.Starter!.Name);
     }
 
     [Fact]
@@ -179,11 +185,11 @@ public class GameTests
         var g = Opened(out _);
         Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Ann Lee"), ending, null));
         Assert.Equal(Phase.Pick, g.Phase);
-        Assert.False(g.Pick(P(g, "Ann Lee"))); // winner cannot pick themselves
-        Assert.True(g.Pick(P(g, "Bo Ray")));
+        Assert.True(g.Pick(P(g, "Bo Ray"), Piece.Shoes));
+        Assert.Equal([Piece.Top, Piece.Bottom], P(g, "Bo Ray").Worn);
         Assert.Equal(2, P(g, "Bo Ray").Lives);
         Assert.Equal(1, P(g, "Ann Lee").Wins);
-        Assert.Equal(new RoundRecord(1, "Ann Lee", ending, "Bo Ray", 2), g.History.Single());
+        Assert.Equal(new RoundRecord(1, "Ann Lee", ending, "Bo Ray", Piece.Shoes, 2), g.History.Single());
         Assert.Equal(Phase.Opening, g.Phase); // next round starts with the opening roll
         Assert.Equal(2, g.Round);
     }
@@ -203,8 +209,9 @@ public class GameTests
         Assert.Equal(6, g.History.Count);
         Assert.Equal(6, P(g, "Ann Lee").Wins);
         g.NewGame();
-        Assert.All(g.Players, p => Assert.Equal(3, p.Lives));
+        Assert.All(g.Players, p => Assert.Equal(DeathrollGame.AllPieces, p.Worn));
         Assert.Empty(g.History);
+        Assert.Empty(g.RollLog);
     }
 
     [Fact]
@@ -265,6 +272,106 @@ public class GameTests
     }
 
     [Fact]
+    public void WinnerMayPickThemselvesAndOnlyAPieceStillWorn()
+    {
+        var g = Opened(out _);
+        g.OnRoll(P(g, "Ann Lee"), 69, null);
+        Assert.True(g.Pick(P(g, "Ann Lee"), Piece.Bottom));
+        Assert.Equal([Piece.Top, Piece.Shoes], P(g, "Ann Lee").Worn);
+        Assert.Equal(new RoundRecord(1, "Ann Lee", 69, "Ann Lee", Piece.Bottom, 2), g.History.Single());
+        Assert.Equal(1, P(g, "Ann Lee").Wins);
+
+        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        g.OnRoll(P(g, "Bo Ray"), 5, null);
+        g.OnRoll(P(g, "Ann Lee"), 1, null);
+        Assert.False(g.Pick(P(g, "Ann Lee"), Piece.Bottom)); // already off
+        Assert.Equal(Phase.Pick, g.Phase);
+    }
+
+    [Fact]
+    public void WinnerTakingOffTheirLastPieceEndsTheGameForTheOther()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        for (var i = 0; i < 3; i++) WinRound(g, "Ann Lee", "Ann Lee");
+        Assert.True(P(g, "Ann Lee").Out);
+        Assert.Equal(Phase.GameOver, g.Phase);
+        Assert.Equal("Bo Ray", g.Active.Single().Name);
+    }
+
+    [Fact]
+    public void EveryRollOfEveryRoundIsLogged()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        g.OnRoll(P(g, "Ann Lee"), 950, null);      // repeat
+        g.OnRoll(P(g, "Bo Ray"), 5, 10);           // wrong opening
+        g.OnRoll(P(g, "Bo Ray"), 400, 999);
+        g.OnRoll(P(g, "Bo Ray"), 3, null);         // out of turn
+        g.OnRoll(P(g, "Ann Lee"), 50, 100);        // wrong number
+        g.AcceptPending();
+        g.OnRoll(P(g, "Bo Ray"), 30, 40);          // wrong number, then rerolled
+        g.OnRoll(P(g, "Bo Ray"), 1, 50);
+        g.OnRoll(null, 7, 50);                     // spectator: not logged
+        Assert.Equal(
+            [RollNote.Opening, RollNote.OpeningRepeat, RollNote.OpeningWrongNumber, RollNote.Opening, RollNote.OutOfTurn,
+             RollNote.Accepted, RollNote.WrongNumber, RollNote.Won],
+            g.RollLog.Select(r => r.Note));
+        Assert.All(g.RollLog, r => Assert.Equal(1, r.Round));
+        Assert.Equal(new RollRecord(1, "Bo Ray", 1, 50, RollNote.Won), g.RollLog[^1]);
+        g.Pick(P(g, "Ann Lee"));
+        g.OnRoll(P(g, "Ann Lee"), 10, null);
+        Assert.Equal(2, g.RollLog[^1].Round);
+    }
+
+    [Fact]
+    public void DummiesAreValidPlayersAndCanBeCleared()
+    {
+        var g = Game("Ann Lee");
+        for (var i = 0; i < DeathrollGame.DummyNames.Length; i++) Assert.True(g.AddDummy());
+        Assert.False(g.AddDummy()); // all used
+        Assert.All(DeathrollGame.DummyNames, n => Assert.True(Names.IsValid(n)));
+        g.StartRound();
+        g.RemoveDummies();
+        Assert.Equal("Ann Lee", g.Players.Single().Name);
+        Assert.False(g.Players.Single().IsDummy);
+        Assert.Equal(Phase.Setup, g.Phase); // one player left
+    }
+
+    [Fact]
+    public void WaitingAndReminderClock()
+    {
+        var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
+        Assert.Null(g.WaitingKey);
+        g.StartRound();
+        Assert.Equal(["Ann Lee", "Bo Ray", "Cy Dee"], g.Waiting.Select(p => p.Name));
+        var clock = new ReminderClock();
+        Assert.False(clock.Due(g.WaitingKey, 0, 30_000));      // starts the wait
+        Assert.False(clock.Due(g.WaitingKey, 29_999, 30_000));
+        Assert.True(clock.Due(g.WaitingKey, 30_000, 30_000));
+        Assert.False(clock.Due(g.WaitingKey, 30_001, 30_000)); // not again straight away
+        g.OnRoll(P(g, "Ann Lee"), 10, null);                   // progress restarts the wait
+        Assert.False(clock.Due(g.WaitingKey, 40_000, 30_000));
+        Assert.False(clock.Due(g.WaitingKey, 69_999, 30_000));
+        Assert.True(clock.Due(g.WaitingKey, 70_000, 30_000));
+        Assert.True(clock.Due(g.WaitingKey, 100_000, 30_000));
+        Assert.True(clock.Due(g.WaitingKey, 130_000, 30_000));
+        Assert.False(clock.Due(g.WaitingKey, 999_000, 30_000)); // capped at MaxPerTurn
+        g.OnRoll(P(g, "Bo Ray"), 900, null);
+        g.OnRoll(P(g, "Cy Dee"), 20, null);
+        Assert.Equal(["Bo Ray"], g.Waiting.Select(p => p.Name));
+        var key = g.WaitingKey;
+        g.OnRoll(P(g, "Bo Ray"), 5, 10); // wrong number: waiting on the host, not the player
+        Assert.Null(g.WaitingKey);
+        Assert.Empty(g.Waiting);
+        g.AcceptPending();
+        Assert.NotEqual(key, g.WaitingKey);
+        Assert.Equal(["Cy Dee"], g.Waiting.Select(p => p.Name));
+        Assert.False(clock.Due(null, 0, 30_000));
+        Assert.False(clock.Due(null, 999_999, 30_000)); // no wait, no reminder
+    }
+
+    [Fact]
     public void OpeningTieIsFlagged()
     {
         var g = Game("Ann Lee", "Bo Ray");
@@ -287,8 +394,17 @@ public class GameTests
         Assert.Equal("/a", Lines.AnnouncePrefix(Venue.Public, true));
         Assert.Equal("/y", Lines.TextPrefix(TextChannel.Yell));
         Assert.Equal("Ann Lee, roll /random 532", Lines.Call("Ann Lee", "/random 532"));
-        Assert.Equal("Bo Ray strips! 1 piece left.", Lines.Stripped("Bo Ray", 1));
-        Assert.Equal("Bo Ray strips the last piece and is out!", Lines.Stripped("Bo Ray", 0));
+        Assert.Equal("Bo Ray loses their top! 1 piece left.", Lines.Stripped("Bo Ray", Piece.Top, 1));
+        Assert.Equal("Bo Ray loses their shoes, the last piece, and is out!", Lines.Stripped("Bo Ray", Piece.Shoes, 0));
+        Assert.Equal("/s", Lines.CallPrefix(CallChannel.Venue, Venue.Private, true));
+        Assert.Equal("/a", Lines.CallPrefix(CallChannel.Venue, Venue.Public, true));
+        Assert.Equal("/y", Lines.CallPrefix(CallChannel.Yell, Venue.Public, true));
+        Assert.Equal("/s", Lines.CallPrefix(CallChannel.Say, Venue.Public, false));
+        Assert.Equal("/p", Lines.CallPrefix(CallChannel.Party, Venue.Private, false));
+        Assert.Equal("Reminder: Ann Lee, it's your turn - roll /random 40", Lines.Reminder(["Ann Lee"], "/random 40", false));
+        Assert.Equal("Still waiting on Ann Lee, Bo Ray: roll /random to start the round.", Lines.Reminder(["Ann Lee", "Bo Ray"], "/random", true));
+        var many = Enumerable.Range(0, 20).Select(i => "Abcdefghijklmno Abcdefghijklmno").ToList();
+        Assert.True(Lines.IsSendable(Lines.Reminder(many, "/dice alliance", true))); // capped at 6 names
         Assert.False(Lines.IsSendable("/shout hi"));
         Assert.False(Lines.IsSendable("a\tb"));
         Assert.False(Lines.IsSendable(new string('x', 401)));
@@ -303,6 +419,7 @@ public class GameTests
         Assert.Equal(0, (int)Venue.Private);
         Assert.Equal(1, (int)Venue.Public);
         Assert.Equal([0, 1, 2], new[] { TextChannel.Say, TextChannel.Yell, TextChannel.Party }.Select(c => (int)c));
+        Assert.Equal([0, 1, 2, 3], new[] { CallChannel.Venue, CallChannel.Say, CallChannel.Yell, CallChannel.Party }.Select(c => (int)c));
     }
 
     // A round can never ask for rolls forever: each accepted roll is <= the limit, a 1 always ends it.
@@ -326,8 +443,9 @@ public class GameTests
                 }
                 else if (g.Phase == Phase.Pick)
                 {
-                    var choices = g.Active.Where(p => p != g.Winner).ToList();
-                    Assert.True(g.Pick(choices[rng.Next(choices.Count)]));
+                    var choices = g.Active.ToList(); // the winner may pick themselves
+                    var target = choices[rng.Next(choices.Count)];
+                    Assert.True(g.Pick(target, target.Worn[rng.Next(target.Worn.Count)]));
                 }
 
                 Assert.True(++rolls < 20_000, "game did not finish");

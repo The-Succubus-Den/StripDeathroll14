@@ -31,12 +31,15 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 ## What it does
 
 - **Private or Public** — a dropdown. Private room: calls go to `/s` and players roll `/random N`. Public: calls go to `/p` (or `/a` when you are in an alliance) and players roll `/dice party N` / `/dice alliance N`, so the rolls stay in the group. Rolls are read in every form either way.
-- **Player list** — add everyone in your party or alliance (cross-world parties included) with one button, or type names in as `Forename Surname`. Remove (Ctrl+click) and move players up or down; the list *is* the turn order.
-- **Opening roll** — *Start round* proposes "everyone roll /random". When every active player has rolled, the list sorts high to low and the highest goes first with a fresh `/random`. A tie for first is flagged so you can reorder.
+- **Calls in** — where your calls and results go: *Venue default* (as above), Say, Yell or Party.
+- **Player list** — add everyone in your party or alliance (cross-world parties included) with one button, add the player you have targeted with *Add target*, or type names in as `Forename Surname`. Remove (Ctrl+click) and move players up or down; the list *is* the turn order and the plugin never reorders it.
+- **Opening roll** — *Start round* proposes "everyone roll /random". When every active player has rolled, the highest is highlighted in yellow and goes first with a fresh `/random`; the turn then goes down the list from them and wraps round. The player next to roll is highlighted in green. A tie for first goes to whoever is higher in the list and is flagged, so you can restart the round for a roll-off.
 - **Turn calls** — it proposes `Name, roll /random` for the starter, then `Name, roll /random N`, where N is the previous player's roll, looping the list.
 - **Alerts** — a roll with the wrong number (`out of 999` when 532 was expected), a roll out of turn, a second opening roll, or a non-bare opening roll prints a `[Deathroll]` line in Echo and shows in red in the window. A wrong-number roll waits for you: *Accept* it or *Ask for reroll*.
-- **Round end** — a 1, 69 or 666 wins the round. The window asks *Who strips?* from the active players (not the winner); that player loses one of 3 pieces, at 0 they are out, and the next round's opening call follows. One player left is game over.
-- **History** — every round: winner, winning roll, who stripped, pieces left. Wins per player are in the list.
+- **Round end** — a 1, 69 or 666 wins the round. The window asks *Who strips?* from the active players, the winner included, and which piece comes off: top, bottom or shoes, from what they still wear. At no pieces they are out, and the next round's opening call follows. One player left is game over.
+- **History** — one section per round, newest first, headed by the winner, winning roll, who stripped, which piece and what is left; inside, every roll of that round with who rolled, the number, the range and what became of it (opening, counted, out of turn, wrong number, accepted, winning roll). Wins per player are in the list.
+- **Reminder** — off by default. When on, after a set quiet time (15–120 s, default 30) it posts `Reminder: Name, it's your turn - roll /random N` in Say or Party, or names everyone still missing an opening roll; at most 3 times per wait, and never while a call is waiting for *Post* or a wrong roll is waiting for you.
+- **Debug mode** — for trying it out alone in game. *Add dummy* adds stand-in players (Dummy Alpha to Dummy Hotel) with *Roll* and *1* buttons on their rows that roll for them through the same path as a chat roll. While it is on, every call, result, reminder and rules/ad line prints to Echo instead of chat; *Roll for me* still really rolls. It lasts for the session, and turning it off removes the dummies.
 - **Rules & Ad** — two saved texts, posted one chat line per text line (up to 10) to Say, Yell or Party.
 - **Roll for me** — when it is your roll, one press (or `/sdr roll` from a hotbar macro) sends the right command: a fresh `/random` for the opening roll or when you start the turns, otherwise `/random N` to the previous roll (`/dice party|alliance` in Public). The button shows the command it will send; a second press for the same turn within 10 s is ignored, so a double press never rolls twice.
 
@@ -44,7 +47,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 
 - **It does not roll for anyone but you,** and it rolls for you only when you press *Roll for me* or run `/sdr roll`.
 - **It does not post on its own unless you turn on Auto-post.** By default every call and result waits in the window for *Post*.
-- **It does not choose who strips.** That is the winner's call; you pick it in the window.
+- **It does not choose who strips or what comes off.** That is the winner's call; you pick both in the window.
 - **It does not handle bets or gil.**
 
 ## How it works
@@ -63,8 +66,11 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 ## Settings
 
 - **Venue** — Private room (say) or Public (party/alliance).
+- **Calls in** — Venue default, Say, Yell or Party.
 - **Auto-post** — off by default; on posts calls and results as they happen.
 - **Rules & Ad** — the two texts and the channel they go to (Say, Yell, Party).
+- **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), Say or Party.
+- **Debug mode** (Settings tab) — session only, never saved.
 
 ## Build
 
@@ -88,10 +94,10 @@ Add `https://raw.githubusercontent.com/priestkos/PlogonYes/main/pluginmaster.jso
 
 ## Tests
 
-`StripDeathroll14.Tests` (xUnit) compiles `Game.cs` with no Dalamud and covers the roll parsers, name matching (party-slot and cross-world glyphs), name validation, opening order and ties, the starter's fresh `/random`, wrong-number and out-of-turn rolls, the 1/69/666 endings, three pieces to out and game over, removing and moving players mid-round, the posted lines and commands, pinned enum numbers, and a 2,000-game random-play sweep that asserts every game finishes.
+`StripDeathroll14.Tests` (xUnit) compiles `Game.cs` with no Dalamud and covers the roll parsers, name matching (party-slot and cross-world glyphs), name validation, the highest opening roll starting without reordering the list, ties, the starter's fresh `/random`, wrong-number and out-of-turn rolls, the 1/69/666 endings, picking a piece (and the winner picking themselves), three pieces to out and game over, the per-round roll log and its notes, dummy players, the reminder's waiting list and clock (interval, reset on progress, cap of 3), removing and moving players mid-round, the posted lines and commands, pinned enum numbers, and a 2,000-game random-play sweep that asserts every game finishes.
 
 ```
-dotnet test StripDeathroll14.Tests    # 16 tests
+dotnet test StripDeathroll14.Tests    # 36 tests
 ```
 
 ## Limits
@@ -102,16 +108,17 @@ dotnet test StripDeathroll14.Tests    # 16 tests
 - **`/random` is visible to nearby players** in the /say radius. That is how the game works; Public mode asks for `/dice` so rolls stay in the group.
 - **A `/dice` roll can be faked.** `/dice` lines are read from Party, Cross-world Party and Alliance chat (in both venue modes), and the plugin does not tell a real one from a player on the list typing `Random! (1-N) 1` there by hand on their turn. When a roll decides the round, check it in chat before you carry on.
 - **Each round starts with a fresh opening roll.** The rules leave open whether the order carries over; this plugin re-rolls it.
-- **Session only.** Players and history are cleared by a plugin reload; settings and the rules and ad texts are saved.
+- **Session only.** Players, history and the roll log are cleared by a plugin reload; settings and the rules and ad texts are saved.
+- **Add target needs a player targeted**, and only adds them; it reads the game's current target, nothing else.
 - **Echo alerts need the Echo chat filter ticked** in your chat log tab; the alert also shows in the window.
 - **The text check on rules and ad lines uses the game's sanitiser with a guessed flag set** (letters, numbers, symbols, CJK). A line it would change is dropped with an alert, never sent altered.
 
 ## Layout
 
 ```
-Game.cs            pure rules: players, opening order, turns, endings, picks, history, parsers, lines
-Plugin.cs          chat reading, the send queue, party import, alerts
-MainWindow.cs      Game / History / Rules & Ad tabs
+Game.cs            pure rules: players, opening, turns, endings, piece picks, history and roll log, reminder clock, parsers, lines
+Plugin.cs          chat reading, the send queue, party and target import, alerts, reminders, debug rolls
+MainWindow.cs      Game / History / Rules & Ad / Settings tabs
 Configuration.cs   saved settings and texts
 StripDeathroll14.Tests/   xUnit tests over Game.cs
 docs/              mock-up screenshots and walkthrough video
