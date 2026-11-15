@@ -430,7 +430,9 @@ public static class Lines
 
     public static string Call(string name, string cmd) => $"{name}, roll {cmd}";
 
-    public static string Won(string winner, int roll, int round) => $"{winner} rolled {roll} and wins round {round}! {winner}, who strips?";
+    /// <summary>ask = false when the strip result follows in the same post, so the question is already answered.</summary>
+    public static string Won(string winner, int roll, int round, bool ask = true) =>
+        $"{winner} rolled {roll} and wins round {round}!" + (ask ? $" {winner}, who strips?" : "");
 
     public static string PieceName(Piece p) => p.ToString().ToLowerInvariant();
 

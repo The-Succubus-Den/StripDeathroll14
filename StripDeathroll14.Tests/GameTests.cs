@@ -568,6 +568,13 @@ public class GameTests
     }
 
     [Fact]
+    public void WinLineAsksWhoStripsUnlessTheResultFollows()
+    {
+        Assert.Equal("Ann Lee rolled 69 and wins round 2! Ann Lee, who strips?", Lines.Won("Ann Lee", 69, 2));
+        Assert.Equal("Ann Lee rolled 69 and wins round 2!", Lines.Won("Ann Lee", 69, 2, ask: false));
+    }
+
+    [Fact]
     public void OutboxDropsRepeatsAndCapsTheQueue()
     {
         var o = new Outbox();

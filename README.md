@@ -46,7 +46,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 ### What it is not meant to do
 
 - **It does not roll for anyone but you,** and it rolls for you only when you press *Roll for me* or run `/sdr roll`.
-- **It does not post on its own unless you turn on Auto-post.** By default every call and result waits in the window for *Post*. A newer call replaces one you have not posted, but the lines of one event stay together: after a pick, the win (if not posted yet), who lost what, and the next call or game-over line wait as one batch.
+- **It does not post on its own unless you turn on Auto-post.** By default every call and result waits in the window for *Post*. A newer call replaces one you have not posted, but the lines of one event stay together: after a pick, the win (if not posted yet, without its "who strips?"), who lost what, and the next call or game-over line wait as one batch.
 - **It does not choose who strips or what comes off.** That is the winner's call; you pick both in the window.
 - **It does not handle bets or gil.**
 

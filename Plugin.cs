@@ -123,12 +123,13 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Pick(Player target, Piece piece)
     {
-        var won = Game.Winner is { } w ? Lines.Won(w.Name, Game.WinningRoll, Game.Round) : null;
+        var w = Game.Winner;
+        var (roll, round) = (Game.WinningRoll, Game.Round);
         if (!Game.Pick(target, piece)) return;
 
         // One event, one batch: the win (if not posted yet), who lost what, then the game-over line or the next call.
         var lines = new List<string>();
-        if (won is not null && Proposed.Contains(won)) lines.Add(won);
+        if (w is not null && Proposed.Contains(Lines.Won(w.Name, roll, round))) lines.Add(Lines.Won(w.Name, roll, round, ask: false));
         lines.Add(Lines.Stripped(target.Name, piece, target.Lives));
         if (Game.Phase == Phase.GameOver) lines.Add(Lines.GameOver(Game.Active.First().Name));
         else if (Game.Current is { } p) lines.Add(Lines.Call(p.Name, RollCommand(Game.Limit)));
