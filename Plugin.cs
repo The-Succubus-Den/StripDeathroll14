@@ -222,7 +222,7 @@ public sealed class Plugin : IDalamudPlugin
     private void Propose(string line)
     {
         if (Config.AutoPost) Enqueue(CallPrefix, line, false);
-        else Proposed.Add(line);
+        else { Proposed.Clear(); Proposed.Add(line); } // only the latest line waits for Post; older ones are stale
     }
 
     private void Enqueue(string prefix, string line, bool freeText)
