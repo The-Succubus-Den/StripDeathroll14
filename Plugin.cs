@@ -16,8 +16,6 @@ namespace StripDeathroll14;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/sdr";
-    private const int MinSpacingMs = 2000; // safety floor between any two sends
-    private const int JitterMs = 1500;
 
     // What the game's own sanitiser may keep; a free-text line it would change is dropped, never sent altered.
     private const AllowedEntities TextEntities = AllowedEntities.UppercaseLetters | AllowedEntities.LowercaseLetters |
@@ -35,8 +33,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ReminderClock reminder = new();
     private readonly WindowSystem windowSystem = new("StripDeathroll14");
     private readonly MainWindow window;
-    private readonly Queue<(string? Prefix, string Text, bool FreeText)> outbox = new();
-    private long nextSendAt;
+    private readonly Outbox outbox = new();
     private const int RollRepeatMs = 10_000;
     private (int, Phase, int?) lastRollKey;
     private long lastRollAt;
@@ -154,7 +151,7 @@ public sealed class Plugin : IDalamudPlugin
         if (key == lastRollKey && now - lastRollAt < RollRepeatMs) return;
         lastRollKey = key;
         lastRollAt = now;
-        outbox.Enqueue((null, cmd, false));
+        if (!outbox.Add(null, cmd, false)) Alert($"Not sent (already waiting, or too much queued): {cmd}");
     }
 
     public void PostProposed()
@@ -235,8 +232,8 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
-        if (Lines.IsSendable(line)) outbox.Enqueue((prefix, line, freeText));
-        else Alert($"Not sent (too long, starts with /, or has a line break): {line}");
+        if (!Lines.IsSendable(line)) Alert($"Not sent (too long, starts with /, or has a line break): {line}");
+        else if (!outbox.Add(prefix, line, freeText)) Alert($"Not sent (already waiting, or {Outbox.MaxWaiting} lines queued): {line}");
     }
 
     private void Alert(string text)
@@ -344,17 +341,16 @@ public sealed class Plugin : IDalamudPlugin
         var waitKey = Config.ReminderEnabled ? Game.WaitingKey : null;
         if (reminder.Due(waitKey, now, Config.ReminderSeconds * 1000)) Remind();
 
-        if (outbox.Count == 0 || now < nextSendAt) return;
+        if (outbox.Take(now, Outbox.Gap(Random.Shared)) is not { } next) return;
+        var (prefix, text, freeText) = next;
 
-        var (prefix, text, freeText) = outbox.Dequeue();
         if (freeText && !IsClean(text))
         {
             Alert($"Not sent (the game would change some characters): {text}");
             return;
         }
 
-        if (Send(prefix is null ? text : $"{prefix} {text}"))
-            nextSendAt = now + MinSpacingMs + Random.Shared.Next(JitterMs);
+        Send(prefix is null ? text : $"{prefix} {text}");
     }
 
     // Only plugin-composed text reaches here: a roll command, or a line checked by Lines.IsSendable behind a fixed prefix.

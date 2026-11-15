@@ -458,3 +458,39 @@ public static class Lines
     public static List<string> TextLines(string text) =>
         text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).Take(MaxTextLines).ToList();
 }
+
+/// <summary>
+/// Every line the plugin sends (rolls, calls, reminders, rules/ad) waits here: one at a time, 1-3 s apart,
+/// a line already waiting is not added twice, and the queue is capped so nothing can pile up into spam.
+/// </summary>
+public sealed class Outbox
+{
+    public const int MinGapMs = 1000, MaxGapMs = 3000;
+    public const int MaxWaiting = Lines.MaxTextLines + 2; // a full rules post plus a call and a roll
+
+    private readonly Queue<(string? Prefix, string Text, bool FreeText)> waiting = new();
+    private long nextAt;
+
+    public int Count => waiting.Count;
+
+    /// <summary>False when the queue is full or the same line is already waiting.</summary>
+    public bool Add(string? prefix, string text, bool freeText)
+    {
+        var item = (prefix, text, freeText);
+        if (waiting.Count >= MaxWaiting || waiting.Contains(item)) return false;
+        waiting.Enqueue(item);
+        return true;
+    }
+
+    /// <summary>The next line once the gap since the last one has passed; the following line waits gapMs after it.</summary>
+    public (string? Prefix, string Text, bool FreeText)? Take(long now, int gapMs)
+    {
+        if (waiting.Count == 0 || now < nextAt) return null;
+        nextAt = now + Math.Clamp(gapMs, MinGapMs, MaxGapMs);
+        return waiting.Dequeue();
+    }
+
+    public static int Gap(Random rng) => rng.Next(MinGapMs, MaxGapMs + 1);
+
+    public void Clear() => waiting.Clear();
+}

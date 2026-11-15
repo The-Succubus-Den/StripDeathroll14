@@ -47,7 +47,7 @@ public sealed class MainWindow : Window
 
         var auto = config.AutoPost;
         if (ImGui.Checkbox("Auto-post", ref auto)) { config.AutoPost = auto; plugin.SaveConfig(); }
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Post calls and results as they happen (2-3.5 s apart). Off: they wait below for Post.");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Post calls and results as they happen (1-3 s apart). Off: they wait below for Post.");
         ImGui.SameLine();
         ImGui.TextDisabled($"Calls go to {plugin.CallPrefix}; players roll {plugin.RollCommand(null)} [N].");
 
@@ -268,7 +268,7 @@ public sealed class MainWindow : Window
         var config = plugin.Config;
         ImGui.SetNextItemWidth(160);
         if (Combo("Post to", config.TextChannel, Enum.GetValues<TextChannel>(), c => c.ToString(), c => config.TextChannel = c)) plugin.SaveConfig();
-        ImGui.TextDisabled($"One chat line per text line, up to {Lines.MaxTextLines}, 2-3.5 s apart.");
+        ImGui.TextDisabled($"One chat line per text line, up to {Lines.MaxTextLines}, 1-3 s apart.");
         var defaults = new Configuration();
         DrawText("Rules", config.RulesText, v => config.RulesText = v, defaults.RulesText);
         DrawText("Ad", config.AdText, v => config.AdText = v, defaults.AdText);

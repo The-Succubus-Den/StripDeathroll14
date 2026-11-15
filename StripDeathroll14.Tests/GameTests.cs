@@ -550,6 +550,38 @@ public class GameTests
         Assert.Equal(new ParsedRoll(null, 0, 532), Rolls.ParseRandom("Random! You roll a 0 (out of 532)."));
     }
 
+    [Fact]
+    public void OutboxSendsOneLineAtATimeOneToThreeSecondsApart()
+    {
+        var o = new Outbox();
+        Assert.True(o.Add(null, "/random 500", false));
+        Assert.True(o.Add("/s", "Ann Lee, roll /random 500", false));
+        Assert.Equal("/random 500", o.Take(0, 1)?.Text);          // a gap below 1 s is raised to 1 s
+        Assert.Null(o.Take(999, 2000));
+        Assert.Equal("Ann Lee, roll /random 500", o.Take(1000, 9999)?.Text); // above 3 s is lowered to 3 s
+        Assert.True(o.Add(null, "/random", false));
+        Assert.Null(o.Take(3999, 2000));
+        Assert.NotNull(o.Take(4000, 2000));
+        var rng = new Random(1);
+        var gaps = Enumerable.Range(0, 5000).Select(_ => Outbox.Gap(rng)).ToList();
+        Assert.Equal(Outbox.MinGapMs, gaps.Min());
+        Assert.Equal(Outbox.MaxGapMs, gaps.Max());
+    }
+
+    [Fact]
+    public void OutboxDropsRepeatsAndCapsTheQueue()
+    {
+        var o = new Outbox();
+        Assert.True(o.Add("/s", "Ann Lee, roll /random 500", false));
+        Assert.False(o.Add("/s", "Ann Lee, roll /random 500", false)); // a double press queues it once
+        Assert.True(o.Add("/p", "Ann Lee, roll /random 500", false));  // other channel, other line
+        for (var i = o.Count; i < Outbox.MaxWaiting; i++) Assert.True(o.Add("/s", $"line {i}", true));
+        Assert.False(o.Add("/s", "one too many", true));
+        Assert.Equal(Outbox.MaxWaiting, o.Count);
+        Assert.Equal("Ann Lee, roll /random 500", o.Take(0, 1000)?.Text);
+        Assert.True(o.Add("/s", "Ann Lee, roll /random 500", false)); // sent, so it can be queued again
+    }
+
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
         if (g.Phase != Phase.Opening) g.StartRound();
