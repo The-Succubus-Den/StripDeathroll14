@@ -372,8 +372,12 @@ public sealed class Plugin : IDalamudPlugin
     public bool AnyRingPlaced => spots.Count > 0;
     public void ResetRings() => spots.Clear();
 
+    /// <summary>Dalamud's Reduce motion setting: still marks and still KosLib controls while it is on.</summary>
+    public bool ReduceMotion => pluginInterface.UiBuilder.ShouldUseReducedMotion;
+
     private void OnDraw()
     {
+        KosLib.MaterialKos.Motion = !ReduceMotion;
         windowSystem.Draw();
         if (!Config.WorldMarkers || seen.Count == 0)
         {
@@ -381,7 +385,7 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
         overlay.UseGpu = Config.WorldMarkersGpu;
-        overlay.Draw(s => markers.Build(s, Game, seen, Environment.TickCount64 / 1000.0, Config.WorldMarkersMotion));
+        overlay.Draw(s => markers.Build(s, Game, seen, Environment.TickCount64 / 1000.0, Config.WorldMarkersMotion && !ReduceMotion));
         if (MovingRings && window.IsOpen) DrawRingHandles();
     }
 

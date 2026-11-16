@@ -25,11 +25,16 @@ public sealed partial class MainWindow : Window
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(440, 360), MaximumSize = new Vector2(1200, 1400) };
     }
 
-    /// <summary>The one look under test: MaterialKos in KosMos colours. It must be pushed before ImGui begins the window.</summary>
+    /// <summary>
+    /// The one look under test: MaterialKos in KosMos colours, frosted if the setting is on. It must be pushed before
+    /// ImGui begins the window. Frosted, KosTheme.Frost() in Draw() blurs behind the window, so Dalamud's own pass is off.
+    /// </summary>
     public override void PreDraw()
     {
         windowTheme?.Dispose();
-        windowTheme = KosTheme.PushWindow(KosAccent.KosMos, material: true);
+        var frosted = plugin.Config.FrostedWindow;
+        AllowBackgroundBlur = !frosted;
+        windowTheme = KosTheme.PushWindow(KosAccent.KosMos, material: true, frosted: frosted);
     }
 
     /// <summary>Dalamud calls this whenever it called PreDraw, so the whole-window push is always popped.</summary>
@@ -41,6 +46,7 @@ public sealed partial class MainWindow : Window
 
     public override void Draw()
     {
+        KosTheme.Frost(); // nothing unless PreDraw pushed the frosted look
         using var bar = ImRaii.TabBar("##tabs");
         if (!bar) return;
         using (var t = ImRaii.TabItem("Game")) if (t) DrawGame();
@@ -348,6 +354,7 @@ public sealed partial class MainWindow : Window
             Kos.HelpMarker("A light circles the ring of whoever is up, each roll sends a ripple out from the roller\n" +
                 "(gold: a winning roll, grey: one that did not count) and a light runs along an arch to the next player.\n" +
                 "Off: the same marks, standing still.");
+            if (plugin.ReduceMotion) ImGui.TextDisabled("Dalamud's Reduce motion is on, so the markers stand still either way.");
             var move = plugin.MovingRings;
             if (MaterialKos.Switch("Move the rings", ref move)) plugin.MovingRings = move;
             ImGui.SameLine();
@@ -359,7 +366,15 @@ public sealed partial class MainWindow : Window
             ImGui.TextDisabled(plugin.WorldStatus);
         }
 
-        Kos.Section("Debug", "03");
+        Kos.Section("Window", "03");
+        var frost = config.FrostedWindow;
+        if (MaterialKos.Switch("Frosted glass", ref frost)) { config.FrostedWindow = frost; plugin.SaveConfig(); }
+        ImGui.SameLine();
+        Kos.HelpMarker("Blurs whatever is behind this window, the game and other windows, tinted night blue.\n" +
+            "The window turns slightly see-through for it (at most 85% opaque). The blur is Dalamud's own.\n" +
+            "Not while the window is dragged out of the game window.");
+
+        Kos.Section("Debug", "04");
         var debug = plugin.DebugMode;
         if (MaterialKos.Switch("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
         ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +

@@ -31,6 +31,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>On by default: a gleam round whoever is up, a ripple from each roll and a light passing the turn on. Off: still marks.</summary>
     public bool WorldMarkersMotion { get; set; } = true;
 
+    /// <summary>Off by default: frosted glass behind the window (Dalamud's blur, tinted night blue; the window turns slightly see-through).</summary>
+    public bool FrostedWindow { get; set; }
+
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;
