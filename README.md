@@ -14,16 +14,17 @@ These images are **mock-ups** (HTML rendered to PNG). They are not real in-game 
 
 | | |
 | --- | --- |
-| ![Setup mock-up](docs/screenshots/01-setup-venue-players.png) | **Setup** — Game tab with the Venue dropdown open (Private room / Public) and four players added with *Add party/alliance*. |
-| ![Roll for me mock-up](docs/screenshots/02-turns-roll-for-me.png) | **Your turn** — Public venue: the opening `/dice party` rolls set the order high to low, *Roll for me* shows `/dice party 412`, and the next call waits for *Post*. |
-| ![Wrong roll mock-up](docs/screenshots/03-wrong-roll-alert.png) | **Wrong roll** — a bare `/random` when `/random 532` was due: a red alert in the window, a `[Deathroll]` line in Echo, and *Accept 57* / *Ask for reroll*. |
-| ![Who strips mock-up](docs/screenshots/04-who-strips.png) | **Who strips?** — a 69 wins the round; the winner picks from the other active players. |
-| ![History mock-up](docs/screenshots/05-history.png) | **History** — four rounds, newest first: winner, winning roll (1, 69, 666), who stripped and pieces left, down to out. |
-| ![Rules and Ad mock-up](docs/screenshots/06-rules-and-ad.png) | **Rules & Ad** — the default texts, posted one chat line per text line to Say. |
+| ![Setup mock-up](docs/screenshots/01-setup-venue-players.png) | **Setup** — Game tab with the Venue dropdown open (*Private room (yell)* / *Public (party/alliance)*) and four players seated round the circle, *Start round* ready. |
+| ![Your turn mock-up](docs/screenshots/02-turns-roll-for-me.png) | **Your turn** — Public venue: the highest opening `/dice party` roll started, *Roll for me* shows `/dice party 412`, the reminder counts down with *Pause* next to it, and the call waits for *Post*. |
+| ![Wrong roll mock-up](docs/screenshots/03-wrong-roll-alert.png) | **Wrong roll** — a bare `/random` when `/random 532` was due: a red callout in the window, a `[Deathroll]` line in Echo, and *Accept 57* / *Ask for reroll*. |
+| ![Who strips mock-up](docs/screenshots/04-who-strips.png) | **Who strips?** — a 69 wins the round; the winner picks a player (themselves included) and one chip per piece still worn, then *Confirm*. |
+| ![History mock-up](docs/screenshots/05-history.png) | **History** — one section per round, newest first: winner, winning roll, who lost what; inside, every roll with its range and note. |
+| ![Messages mock-up](docs/screenshots/06-rules-and-ad.png) | **Messages** — the rules and ad texts posted line by line to Say, and the game lines in your own words, each with a filled-in example and *Default*. |
+| ![Settings and world markers mock-up](docs/screenshots/07-settings-world-markers.png) | **Settings** — Reminder, World markers, Window (frosted glass) and Debug; beside it an illustrated stand-in for the rings and pillars of light KosDraw draws in the game world. |
 
 ## Mock-up video
 
-A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, your turn, a wrong-roll alert, *Who strips?* and the Rules & Ad tab with bottom captions. The gold **Mock-up** label stays visible for the whole clip.
+A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, your turn, a wrong-roll alert, *Who strips?*, the Settings tab with a world-marker stand-in and the Messages tab, with bottom captions. The gold **Mock-up** label stays visible for the whole clip.
 
 - [mockup-walkthrough.mp4](docs/videos/mockup-walkthrough.mp4) (H.264, 1280×720, ~15 s)
 - [mockup-walkthrough.gif](docs/videos/mockup-walkthrough.gif) (preview)
@@ -40,7 +41,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 - **Round end** — a 0, 1, 69 or 666 wins the round (`/random` rolls from 0). The window asks *Who strips?* from the active players, the winner included, and which piece comes off: top, bottom or shoes, from what they still wear. At no pieces they are out. The next round has no opening roll: it resumes with the next active player clockwise from the winner, who rolls a fresh `/random` and is called at once (shown as *started*). *Start round* still restarts a round with an opening roll. One player left is game over.
 - **History** — one section per round, newest first, headed by the winner, winning roll, who stripped, which piece and what is left; inside, every roll of that round with who rolled, the number, the range and what became of it (opening, counted, out of turn, wrong number, accepted, winning roll). Wins per player are in each seat's tooltip.
 - **Reminder** — off by default. When on, after a set quiet time (15–120 s, default 30) it posts `Reminder: Name, it's your turn - roll /random N` in Say or Party, or names everyone still missing an opening roll; at most 3 times per wait (the Game tab counts down the seconds to the next one and how many are left), whether or not the call itself was posted, at any point in the game. Not while a wrong roll is waiting for you. **Pause** next to the countdown holds the timer, through turn changes too, until you press *Resume* (this session only). **Only remind me** prints the reminder to your own Echo and sends nothing.
-- **Debug mode** — for trying it out alone in game. *Add dummy* adds stand-in players (Dummy Alpha to Dummy Hotel) with *Roll* and *1* buttons on their rows that roll for them through the same path as a chat roll. While it is on, every call, result, reminder and rules/ad line prints to Echo instead of chat; *Roll for me* still really rolls. It lasts for the session, and turning it off removes the dummies.
+- **Debug mode** — for trying it out alone in game. *Add dummy* adds stand-in players (Dummy Alpha to Dummy Xray, up to 24); right-click a dummy's seat for *Roll for this dummy* or *Make this dummy roll a 1*, which roll for it through the same path as a chat roll. While it is on, every call, result, reminder and rules/ad line prints to Echo instead of chat; *Roll for me* still really rolls. It lasts for the session, and turning it off removes the dummies.
 - **Messages** — the rules and ad, two saved texts (*Default* restores the shipped wording) posted one chat line per text line (up to 10) to Say, Yell or Party; and the wording of every game line the plugin posts (round start, call, win, strip, out, game over and both reminders). Words in `{braces}` such as `{name}` and `{roll}` are filled in, each line shows a filled-in example (red if it could not be sent), and a blank line uses the default.
 - **Roll for me** — when it is your roll, one press (or `/sdr roll` from a hotbar macro) sends the right command: a fresh `/random` for the opening roll or when you start the turns, otherwise `/random N` to the previous roll (`/dice party|alliance` in Public). The button shows the command it will send; a second press for the same turn within 10 s is ignored, so a double press never rolls twice.
 
@@ -62,7 +63,7 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 | Command | Effect |
 | --- | --- |
 | `/sdr` | Open or close the window. |
-| `/sdr roll` | Make your correct roll now (same as *Roll for me*); prints "It is not your roll." otherwise. |
+| `/sdr roll` | Make your correct roll now (same as *Roll for me*); otherwise a `[Deathroll] It is not your roll.` alert in Echo and the window. |
 
 ## Settings
 
@@ -79,7 +80,8 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 
 Requires the .NET 10 SDK and the Dalamud dev distribution
 (`%APPDATA%\XIVLauncher\addon\Hooks\dev`, or `DALAMUD_HOME`). The shared UI pieces come from the
-[KosLib](https://github.com/priestkos/KosLib) submodule, so clone with `git clone --recurse-submodules`
+[KosLib](https://github.com/priestkos/KosLib) submodule and the world markers from the
+[KosDraw](https://github.com/priestkos/KosDraw) submodule, so clone with `git clone --recurse-submodules`
 (or run `git submodule update --init` in an existing clone).
 
 ```
@@ -102,7 +104,7 @@ Add `https://raw.githubusercontent.com/priestkos/PlogonYes/main/pluginmaster.jso
 `StripDeathroll14.Tests` (xUnit) compiles `Game.cs` with no Dalamud and covers the roll parsers, name matching (party-slot and cross-world glyphs), name validation, the highest opening roll starting without reordering the list, later rounds resuming after the winner (out players skipped), ties, the starter's fresh `/random`, wrong-number and out-of-turn rolls, the 0/1/69/666 endings, picking a piece (and the winner picking themselves), three pieces to out and game over, the per-round roll log and its notes, dummy players, the reminder's waiting list and clock (interval, reset on progress, cap of 3, pause and resume), removing and moving players mid-round, the posted lines and commands (and the host's own wording for them), the world markers' roles and motion cues (new rolls and the turn's hand-over, each reported once), pinned enum numbers, and a 2,000-game random-play sweep that asserts every game finishes.
 
 ```
-dotnet test StripDeathroll14.Tests    # 46 tests
+dotnet test StripDeathroll14.Tests    # 50 tests
 ```
 
 ## Limits
@@ -116,7 +118,7 @@ dotnet test StripDeathroll14.Tests    # 46 tests
 - **Session only.** Players, history and the roll log are cleared by a plugin reload; settings and the rules and ad texts are saved.
 - **Add target needs a player targeted**, and only adds them; it reads the game's current target, nothing else.
 - **Echo alerts need the Echo chat filter ticked** in your chat log tab; the alert also shows in the window.
-- **The text check on rules and ad lines uses the game's sanitiser with a guessed flag set** (letters, numbers, symbols, CJK). A line it would change is dropped with an alert, never sent altered.
+- **The text check on every posted line uses the game's sanitiser with a guessed flag set** (letters, numbers, symbols, CJK). A line it would change is dropped with an alert, never sent altered.
 
 ## Layout
 
@@ -124,8 +126,12 @@ dotnet test StripDeathroll14.Tests    # 46 tests
 Game.cs            pure rules: players, opening, turns, endings, piece picks, history and roll log, reminder clock, parsers, lines
 Plugin.cs          chat reading, the send queue, party and target import, alerts, reminders, debug rolls
 MainWindow.cs      Game / History / Messages / Settings tabs
+MainWindow.Circle.cs   the players' circle on the Game tab (seats, turn arrow, drag to reseat, seat menu)
+MainWindow.Style.cs    phase label and colour for the status card
+WorldMarkers.cs    the KosDraw rings, pillars of light and motion under the players
 Configuration.cs   saved settings and texts
 KosLib/            submodule: shared cards, section headers, toggles and presets (github.com/priestkos/KosLib), compiled in from KosLib/src
+KosDraw/           submodule: world-space drawing, ImGui or Direct3D (github.com/priestkos/KosDraw)
 StripDeathroll14.Tests/   xUnit tests over Game.cs
 docs/              mock-up screenshots and walkthrough video
 images/            icon.svg (source) and icon.png (manifest icon)
