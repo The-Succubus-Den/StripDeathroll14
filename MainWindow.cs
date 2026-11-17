@@ -377,7 +377,7 @@ public sealed partial class MainWindow : Window
         Kos.Section("Debug", "04");
         var debug = plugin.DebugMode;
         if (MaterialKos.Switch("Debug mode (this session only)", ref debug)) plugin.SetDebugMode(debug);
-        ImGui.TextDisabled("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\n" +
+        ImGui.TextDisabled("Adds an Add dummy button; right-click a dummy's seat to make it roll, so you can play a whole game alone.\n" +
             "While it is on, calls, results, reminders and the rules/ad print to Echo instead of chat; Roll for me still rolls.\n" +
             "Turning it off removes the dummies.");
         if (plugin.DebugMode && ImGui.CollapsingHeader("KosLib gallery")) KosGallery.Draw();

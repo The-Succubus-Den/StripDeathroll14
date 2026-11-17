@@ -226,7 +226,7 @@
     dis("4 of 4 players found nearby.") +
     section("Window", "03") + row(sw("Frosted glass", false), help) +
     section("Debug", "04") + row(sw("Debug mode (this session only)", false)) +
-    dis("Adds an Add dummy button and Roll / 1 buttons on dummy rows, so you can play a whole game alone.\nWhile it is on, calls, results, reminders and the rules/ad print to Echo instead of chat; Roll for me still rolls.\nTurning it off removes the dummies."),
+    dis("Adds an Add dummy button; right-click a dummy's seat to make it roll, so you can play a whole game alone.\nWhile it is on, calls, results, reminders and the rules/ad print to Echo instead of chat; Roll for me still rolls.\nTurning it off removes the dummies."),
     "font-size:12.5px");
   S.world = () => {
     const m = [
