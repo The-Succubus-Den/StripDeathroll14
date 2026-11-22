@@ -224,11 +224,14 @@ public class GameTests
     {
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
         for (var i = 0; i < 3; i++) WinRound(g, "Ann Lee", "Bo Ray");
-        g.StartRound(); // host restart with an opening roll
-        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        Assert.Equal("Cy Dee", g.Current!.Name);  // next after the winner Ann, Bo (out) skipped
+        g.OnRoll(P(g, "Cy Dee"), 500, null);
+        g.StartRound(); // host restart: Cy starts again
+        Assert.Equal(Phase.Turns, g.Phase);
+        Assert.Equal("Cy Dee", g.Current!.Name);
         g.OnRoll(P(g, "Cy Dee"), 100, null);
         Assert.Equal("Ann Lee", g.Current!.Name);
-        g.OnRoll(P(g, "Ann Lee"), 50, null);
+        g.OnRoll(P(g, "Ann Lee"), 50, 100);
         Assert.Equal("Cy Dee", g.Current!.Name);
         g.OnRoll(P(g, "Cy Dee"), 20, 50);
         Assert.Equal("Ann Lee", g.Current!.Name);
@@ -602,11 +605,8 @@ public class GameTests
     {
         var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
         for (var i = 0; i < 2; i++) WinRound(g, "Ann Lee", "Ann Lee");
-        g.StartRound();
-        g.OnRoll(P(g, "Ann Lee"), 900, null);
-        g.OnRoll(P(g, "Bo Ray"), 10, null);
-        g.OnRoll(P(g, "Cy Dee"), 20, null);
-        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Ann Lee"), 1, null));
+        ReachTurn(g, "Ann Lee");
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Ann Lee"), 1, g.Limit));
         Assert.True(g.Pick(P(g, "Ann Lee")));      // her last piece: out
         Assert.True(P(g, "Ann Lee").Out);
         Assert.Equal("Bo Ray", g.Current!.Name);   // next after the (now out) winner
@@ -729,15 +729,35 @@ public class GameTests
         g.Pick(P(g, "Bo Ray"));
         Assert.Equal(2, g.Round);                // a finished round moves on
         g.OnRoll(P(g, "Bo Ray"), 50, null);
-        g.StartRound();                          // restart round 2: still 2, opening roll-off, round 1 kept
+        g.StartRound();                          // restart round 2: still 2, Bo (next after the winner) starts again, round 1 kept
         Assert.Equal(2, g.Round);
-        Assert.Equal(Phase.Opening, g.Phase);
+        Assert.Equal(Phase.Turns, g.Phase);
+        Assert.Equal("Bo Ray", g.Current!.Name);
+        Assert.Null(g.Limit);
         Assert.All(g.RollLog, r => Assert.Equal(1, r.Round));
 
         g.Remove(P(g, "Bo Ray"));                // stopped with no result: the next start reuses the number
         g.Add("Cy Dee");
         g.StartRound();
         Assert.Equal(2, g.Round);
+        Assert.Equal("Cy Dee", g.Current!.Name); // Bo left: the next after the winner Ann is now Cy
+    }
+
+    [Fact]
+    public void RestartInRoundOneStillOpensAndAWinnerWhoLeftKeepsTheSeatOrder()
+    {
+        var g = Game("Ann Lee", "Bo Ray", "Cy Dee");
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 500, null);
+        g.StartRound();                          // round 1: nobody has won yet, so everyone rolls again
+        Assert.Equal(Phase.Opening, g.Phase);
+        WinRound(g, "Ann Lee", "Cy Dee");
+        Assert.Equal("Bo Ray", g.Current!.Name);
+        g.Remove(P(g, "Ann Lee"));               // the winner leaves mid-round
+        g.StartRound();
+        Assert.Equal(2, g.Round);
+        Assert.Equal(Phase.Turns, g.Phase);
+        Assert.Equal("Bo Ray", g.Current!.Name);
     }
 
     [Fact]
@@ -897,8 +917,7 @@ public class GameTests
 
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
-        if (g.Phase != Phase.Opening) g.StartRound();
-        foreach (var p in g.Active.ToList()) g.OnRoll(p, p.Name == winner ? 999 : 10, null);
+        ReachTurn(g, winner);
         Assert.Equal(winner, g.Current!.Name);
         Assert.Equal(RollOutcome.Won, g.OnRoll(g.Current, 1, g.Limit));
         Assert.True(g.Pick(P(g, target)));
@@ -906,8 +925,21 @@ public class GameTests
 
     private static void WinRoundNoPick(DeathrollGame g, string winner)
     {
-        if (g.Phase != Phase.Opening) g.StartRound();
-        foreach (var p in g.Active.ToList()) g.OnRoll(p, p.Name == winner ? 999 : 10, null);
+        ReachTurn(g, winner);
         Assert.Equal(RollOutcome.Won, g.OnRoll(g.Current, 1, g.Limit));
+    }
+
+    /// <summary>Plays until it is <paramref name="who"/>'s turn: an opening they win in round 1, else plain counted rolls round the table.</summary>
+    private static void ReachTurn(DeathrollGame g, string who)
+    {
+        if (g.Phase == Phase.Setup) g.StartRound();
+        if (g.Phase == Phase.Opening)
+            foreach (var p in g.Active.ToList()) g.OnRoll(p, p.Name == who ? 999 : 10, null);
+        while (g.Current!.Name != who)
+        {
+            var v = (g.Limit ?? 1000) - 1;
+            if (v is 666 or 69) v--;
+            Assert.Equal(RollOutcome.Next, g.OnRoll(g.Current, v, g.Limit));
+        }
     }
 }

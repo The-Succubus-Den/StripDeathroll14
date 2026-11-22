@@ -241,17 +241,22 @@ public sealed class DeathrollGame
     public bool CanStartRound => Phase is Phase.Setup or Phase.Opening or Phase.Turns && Active.Count() >= 2;
 
     /// <summary>
-    /// Starts the next round with opening rolls, or restarts the round in play (or a stopped one with no result) under the
-    /// same number: its rolls are dropped and everyone rolls to open again.
+    /// Starts the next round, or restarts the round in play (or a stopped one with no result) under the same number with
+    /// its rolls dropped. Round 1 opens with everyone rolling; from round 2 the player next to the previous round's winner
+    /// starts with a fresh /random, a restart included.
     /// </summary>
     public void StartRound()
     {
         if (!CanStartRound) return;
         if (Round > 0 && History.All(h => h.Round != Round)) RollLog.RemoveAll(r => r.Round == Round);
         else Round++;
-        roundStarter = null;
+        roundStarter = Round > 1 ? StarterAfterLastWinner() ?? roundStarter : null; // winner gone: Remove already moved roundStarter on
         BeginRound();
     }
+
+    /// <summary>The next active player clockwise from the last round's winner; null when there is none or they left.</summary>
+    private Player? StarterAfterLastWinner() =>
+        History.LastOrDefault(h => h.Round < Round) is { } last && Players.FirstOrDefault(p => p.Name == last.Winner) is { } w ? NextActive(w) : null;
 
     /// <summary>The state at the start of the round: opening rolls, or turns from roundStarter with a fresh /random.</summary>
     private void BeginRound()
