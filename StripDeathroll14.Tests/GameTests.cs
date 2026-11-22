@@ -712,6 +712,127 @@ public class GameTests
         Assert.True(o.Add("/s", "Ann Lee, roll /random 500", false)); // sent, so it can be queued again
     }
 
+    [Fact]
+    public void RestartKeepsTheRoundNumberAndDropsItsRolls()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 500, null);
+        for (var i = 0; i < 3; i++) g.StartRound(); // restart, restart, restart
+        Assert.Equal(1, g.Round);
+        Assert.Empty(g.RollLog);
+        Assert.Equal(Phase.Opening, g.Phase);
+
+        g.OnRoll(P(g, "Ann Lee"), 900, null);
+        g.OnRoll(P(g, "Bo Ray"), 10, null);
+        g.OnRoll(P(g, "Ann Lee"), 1, null);
+        g.Pick(P(g, "Bo Ray"));
+        Assert.Equal(2, g.Round);                // a finished round moves on
+        g.OnRoll(P(g, "Bo Ray"), 50, null);
+        g.StartRound();                          // restart round 2: still 2, opening roll-off, round 1 kept
+        Assert.Equal(2, g.Round);
+        Assert.Equal(Phase.Opening, g.Phase);
+        Assert.All(g.RollLog, r => Assert.Equal(1, r.Round));
+
+        g.Remove(P(g, "Bo Ray"));                // stopped with no result: the next start reuses the number
+        g.Add("Cy Dee");
+        g.StartRound();
+        Assert.Equal(2, g.Round);
+    }
+
+    [Fact]
+    public void EditingARollReplaysTheRound()
+    {
+        var g = Opened(out _);                   // Ann starts (900 vs 500)
+        g.OnRoll(P(g, "Ann Lee"), 400, null);
+        g.OnRoll(P(g, "Bo Ray"), 300, 400);
+        g.OnRoll(P(g, "Ann Lee"), 200, 300);
+        Assert.Equal("Bo Ray", g.Current!.Name);
+        Assert.Equal(200, g.Limit);
+
+        Assert.True(g.EditRoll(4, 1, 300));      // Ann's 200 was really a 1: she won
+        Assert.Equal(Phase.Pick, g.Phase);
+        Assert.Equal("Ann Lee", g.Winner!.Name);
+        Assert.Equal(RollNote.Won, g.RollLog[4].Note);
+        Assert.Equal(5, g.RollLog.Count);        // one line per roll, nothing lost
+
+        Assert.True(g.EditRoll(4, 250, 300));    // back again
+        Assert.Equal(Phase.Turns, g.Phase);
+        Assert.Equal(250, g.Limit);
+        Assert.Equal("Bo Ray", g.Current!.Name);
+
+        Assert.True(g.EditRoll(0, 950, null));   // Bo's opening (logged first) was 950: he starts, so Ann's 400 is out of turn
+        Assert.Equal("Bo Ray", g.Starter!.Name);
+        Assert.Equal(RollNote.OutOfTurn, g.RollLog[2].Note);
+
+        Assert.False(g.EditRoll(1, 1000, null)); // above a plain roll
+        Assert.False(g.EditRoll(1, 5, 1));       // no real maximum below 2
+        Assert.False(g.EditRoll(99, 5, null));
+    }
+
+    [Fact]
+    public void ReplayKeepsHostAcceptsAndVoidsRollsAfterTheWin()
+    {
+        var g = Opened(out _);
+        g.OnRoll(P(g, "Ann Lee"), 50, 100);      // wrong number
+        g.AcceptPending();
+        Assert.True(g.RollLog[2].Accepted);
+        g.OnRoll(P(g, "Bo Ray"), 1, 50);         // win
+        g.Pick(P(g, "Ann Lee"));
+        // round 2: Ann (next after Bo) starts; turn an earlier roll into a win so the later one is void
+        Assert.Equal("Ann Lee", g.Current!.Name);
+        g.OnRoll(P(g, "Ann Lee"), 100, null);
+        g.OnRoll(P(g, "Bo Ray"), 40, 100);
+        var ann = g.RollLog.FindIndex(r => r.Round == 2 && r.Player == "Ann Lee");
+        Assert.False(g.EditRoll(2, 60, 100));    // round 1 is history: not editable
+        Assert.True(g.EditRoll(ann, 69, null));  // Ann's opener was a 69: she won at once
+        Assert.Equal(Phase.Pick, g.Phase);
+        Assert.Equal(RollNote.Void, g.RollLog[^1].Note); // Bo's 40 no longer counts but is kept
+        Assert.True(g.EditRoll(ann, 100, null));
+        Assert.Equal(RollNote.Counted, g.RollLog[^1].Note); // and comes back
+
+        // the accept survives a replay of its own round
+        var h = Opened(out _);
+        h.OnRoll(P(h, "Ann Lee"), 50, 100);
+        h.AcceptPending();
+        h.OnRoll(P(h, "Bo Ray"), 30, 50);
+        Assert.True(h.EditRoll(3, 20, 50));
+        Assert.Equal(RollNote.Accepted, h.RollLog[2].Note);
+        Assert.Equal("Ann Lee", h.Current!.Name);
+        Assert.Equal(20, h.Limit);
+    }
+
+    [Fact]
+    public void DeletingARollAndEditingOnlyWhileARoundRuns()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        Assert.False(g.CanEditRolls);
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 500, null);
+        g.OnRoll(P(g, "Bo Ray"), 400, null);
+        Assert.Equal(Phase.Turns, g.Phase);
+        Assert.True(g.DeleteRoll(1));            // Bo's opening was a misread line
+        Assert.Equal(Phase.Opening, g.Phase);
+        Assert.Equal(["Bo Ray"], g.Waiting.Select(p => p.Name));
+        g.NewGame();
+        Assert.False(g.DeleteRoll(0));
+    }
+
+    [Fact]
+    public void ClearPlayersEmptiesTheListAndStopsTheRound()
+    {
+        var g = Opened(out _);
+        g.ClearPlayers();
+        Assert.Empty(g.Players);
+        Assert.Equal(Phase.Setup, g.Phase);
+        Assert.Null(g.Current);
+        Assert.Null(g.Starter);
+        Assert.NotEmpty(g.RollLog);              // history stays until New game
+        g.NewGame();
+        Assert.Empty(g.RollLog);
+        Assert.Equal(0, g.Round);
+    }
+
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
         if (g.Phase != Phase.Opening) g.StartRound();

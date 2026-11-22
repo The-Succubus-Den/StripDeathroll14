@@ -63,6 +63,7 @@ public enum RollNote
     Accepted,           // a wrong number the host accepted
     Counted,
     Won,
+    Void,               // no longer counts after a host edit: the round was already won, or the player left
 }
 
 public sealed class Player
@@ -78,7 +79,8 @@ public sealed class Player
 
 public sealed record RoundRecord(int Round, string Winner, int WinningRoll, string Target, Piece Piece, int TargetLivesLeft);
 
-public sealed record RollRecord(int Round, string Player, int Value, int? Max, RollNote Note);
+/// <summary>Accepted: the host took this wrong-number roll, so a replay after an edit takes it again.</summary>
+public sealed record RollRecord(int Round, string Player, int Value, int? Max, RollNote Note, bool Accepted = false);
 
 public readonly record struct PendingRoll(Player Player, int Value, int? Max, int LogIndex);
 
@@ -96,6 +98,7 @@ public sealed class DeathrollGame
          "Dummy Quebec", "Dummy Romeo", "Dummy Sierra", "Dummy Tango", "Dummy Uniform", "Dummy Victor", "Dummy Whiskey", "Dummy Xray"];
 
     private int turnSerial;
+    private Player? roundStarter; // who starts the current round's turns without opening rolls; null = the round opens with rolls
 
     public List<Player> Players { get; } = [];
     public List<RoundRecord> History { get; } = [];
@@ -145,7 +148,7 @@ public sealed class DeathrollGame
     public RollRecord? LastRoll(Player p) => RollLog.LastOrDefault(r => r.Player == p.Name);
 
     /// <summary>Rolls that changed nothing: shown greyed.</summary>
-    public static bool NotCounted(RollNote n) => n is RollNote.OpeningRepeat or RollNote.OpeningWrongNumber or RollNote.OutOfTurn or RollNote.WrongNumber;
+    public static bool NotCounted(RollNote n) => n is RollNote.OpeningRepeat or RollNote.OpeningWrongNumber or RollNote.OutOfTurn or RollNote.WrongNumber or RollNote.Void;
 
     public Player? Find(string rawName) => Players.FirstOrDefault(p => Names.Matches(p.Name, rawName));
 
@@ -164,8 +167,20 @@ public sealed class DeathrollGame
         foreach (var d in Players.Where(p => p.IsDummy).ToList()) Remove(d);
     }
 
+    /// <summary>Empties the player list; the round in play (if any) stops. History and the roll log stay until New game.</summary>
+    public void ClearPlayers()
+    {
+        Players.Clear();
+        Current = Winner = Starter = roundStarter = null;
+        Pending = null;
+        Limit = null;
+        turnSerial++;
+        if (Phase != Phase.Setup) Phase = Phase.Setup;
+    }
+
     public void Remove(Player p)
     {
+        if (roundStarter == p) roundStarter = Players.Count > 1 ? NextActive(p) : null; // a replay after an edit still has a starter
         if (Current == p) Current = Players.Count > 1 ? NextActive(p) : null;
         if (Starter == p) Starter = null;
         if (Winner == p) { Winner = null; Phase = Phase.Setup; }
@@ -193,16 +208,38 @@ public sealed class DeathrollGame
 
     public bool CanStartRound => Phase is Phase.Setup or Phase.Opening or Phase.Turns && Active.Count() >= 2;
 
+    /// <summary>
+    /// Starts the next round with opening rolls, or restarts the round in play (or a stopped one with no result) under the
+    /// same number: its rolls are dropped and everyone rolls to open again.
+    /// </summary>
     public void StartRound()
     {
         if (!CanStartRound) return;
+        if (Round > 0 && History.All(h => h.Round != Round)) RollLog.RemoveAll(r => r.Round == Round);
+        else Round++;
+        roundStarter = null;
+        BeginRound();
+    }
+
+    /// <summary>The state at the start of the round: opening rolls, or turns from roundStarter with a fresh /random.</summary>
+    private void BeginRound()
+    {
         foreach (var p in Players) p.Opening = null;
-        Round++;
-        Phase = Phase.Opening;
         Current = Winner = Starter = null;
         Limit = null;
         Pending = null;
         OpeningTie = false;
+        WinningRoll = 0;
+        turnSerial++;
+        if (roundStarter is { Out: false } s && Players.Contains(s))
+        {
+            Starter = Current = s;
+            Phase = Phase.Turns;
+        }
+        else
+        {
+            Phase = Phase.Opening;
+        }
     }
 
     public void NewGame()
@@ -219,10 +256,59 @@ public sealed class DeathrollGame
         RollLog.Clear();
         Round = 0;
         Phase = Phase.Setup;
-        Current = Winner = Starter = null;
+        Current = Winner = Starter = roundStarter = null;
         Limit = null;
         Pending = null;
         OpeningTie = false;
+        WinningRoll = 0;
+        turnSerial++;
+    }
+
+    /// <summary>The host may fix this round's rolls (and add missed ones) from its start until the next round begins.</summary>
+    public bool CanEditRolls => Round > 0 && Phase is Phase.Opening or Phase.Turns or Phase.Pick;
+
+    /// <summary>True when <paramref name="index"/> is a roll of the round in play, so it may be edited or deleted.</summary>
+    public bool IsEditable(int index) => CanEditRolls && index >= 0 && index < RollLog.Count && RollLog[index].Round == Round;
+
+    /// <summary>A number a real roll could produce: 0 to N, N at least 2; max null is a bare /random (0-999).</summary>
+    public static bool IsPossible(int value, int? max) => max is null or >= 2 && value >= 0 && value <= (max ?? OpeningMax);
+
+    /// <summary>Changes one roll of the round in play and works the round out again from its start. False when not allowed.</summary>
+    public bool EditRoll(int index, int value, int? max)
+    {
+        if (!IsEditable(index) || !IsPossible(value, max)) return false;
+        RollLog[index] = RollLog[index] with { Value = value, Max = max };
+        Replay();
+        return true;
+    }
+
+    /// <summary>Drops one roll of the round in play and works the round out again from its start.</summary>
+    public bool DeleteRoll(int index)
+    {
+        if (!IsEditable(index)) return false;
+        RollLog.RemoveAt(index);
+        Replay();
+        return true;
+    }
+
+    /// <summary>
+    /// Re-runs the round in play from its start over its logged rolls, in order: every roll is judged again (the host's
+    /// accepts included), so the turn, the limit and a win follow an edit. Each roll keeps one log line; a roll that
+    /// no longer counts (after the win, or its player left) stays, marked Void, so a second edit can bring it back.
+    /// </summary>
+    private void Replay()
+    {
+        var inputs = RollLog.Where(r => r.Round == Round).ToList();
+        RollLog.RemoveAll(r => r.Round == Round);
+        BeginRound();
+        foreach (var r in inputs)
+        {
+            var p = Players.FirstOrDefault(x => x.Name == r.Player);
+            var before = RollLog.Count;
+            var outcome = OnRoll(p, r.Value, r.Max);
+            if (RollLog.Count == before) RollLog.Add(r with { Note = RollNote.Void, Accepted = false });
+            else if (outcome == RollOutcome.WrongMax && r.Accepted) AcceptPending();
+        }
     }
 
     /// <summary>A roll read from chat (or simulated for a dummy). <paramref name="max"/> is null for a bare /random.</summary>
@@ -254,6 +340,7 @@ public sealed class DeathrollGame
     public RollOutcome AcceptPending()
     {
         if (Pending is not { } pending || Phase != Phase.Turns || pending.Player != Current) return RollOutcome.Ignored;
+        RollLog[pending.LogIndex] = RollLog[pending.LogIndex] with { Accepted = true };
         return Apply(pending.Value, pending.LogIndex, RollNote.Accepted);
     }
 
@@ -265,14 +352,11 @@ public sealed class DeathrollGame
         target.Worn.Remove(piece);
         History.Add(new RoundRecord(Round, Winner.Name, WinningRoll, target.Name, piece, target.Lives));
         if (Active.Count() <= 1) { Phase = Phase.GameOver; return true; }
-        var from = Winner;
-        Phase = Phase.Setup;
-        StartRound();
         // Round 2 on: no opening roll; the next player in the list after the winner starts with a fresh /random.
         // The piece is already off, so a player who just went out is skipped (NextActive ignores Out).
-        Starter = Current = NextActive(from);
-        turnSerial++;
-        Phase = Phase.Turns;
+        roundStarter = NextActive(Winner);
+        Round++;
+        BeginRound();
         return true;
     }
 

@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using KosLib;
@@ -16,6 +17,12 @@ public sealed partial class MainWindow : Window
     private Player? pickTarget;
     private Piece? pickPiece;
     private KosTheme.Scope? windowTheme;
+    private bool showHistory;       // the Game tab's Edit rolls button selects the History tab next frame
+    private int editIndex = -1;     // the roll log line being edited, -1 none
+    private int editValue, editMax;
+    private string? addRollFor;     // the player picked in the Add a missed roll row
+    private int addValue, addMax;
+    private string rollNote = "";
 
     public MainWindow(Plugin plugin) : base("Strip Deathroll###StripDeathroll14")
     {
@@ -50,7 +57,8 @@ public sealed partial class MainWindow : Window
         using var bar = ImRaii.TabBar("##tabs");
         if (!bar) return;
         using (var t = ImRaii.TabItem("Game")) if (t) DrawGame();
-        using (var t = ImRaii.TabItem("History")) if (t) DrawHistory();
+        using (var t = ImRaii.TabItem("History", showHistory ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None)) if (t) DrawHistory();
+        showHistory = false;
         using (var t = ImRaii.TabItem("Messages")) if (t) DrawTexts();
         using (var t = ImRaii.TabItem("Settings")) if (t) DrawSettings();
     }
@@ -137,8 +145,15 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         using (ImRaii.Disabled(game.Current is null)) { if (MaterialKos.Button("Call again", MaterialButton.Tonal, FontAwesomeIcon.Bullhorn)) plugin.CallCurrent(); }
         ImGui.SameLine();
-        if (MaterialKos.Button("New game", MaterialButton.Text, FontAwesomeIcon.Broom) && ImGui.GetIO().KeyCtrl) game.NewGame();
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: everyone back to 3 pieces, history cleared.");
+        using (ImRaii.Disabled(!game.CanEditRolls))
+        {
+            if (MaterialKos.Button("Edit rolls", MaterialButton.Text, FontAwesomeIcon.Edit)) showHistory = true;
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip("Fix a misread roll, delete one, or add a roll the plugin missed (History tab). Once a round has started.");
+        }
+        ImGui.SameLine();
+        if (MaterialKos.Button("New game", MaterialButton.Text, FontAwesomeIcon.Broom) && ImGui.GetIO().KeyCtrl) NewGame();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: a clean slate. Everyone back to 3 pieces, round 1 again, history, alerts and unposted lines cleared. Players stay.");
 
         DrawProposed();
         Kos.Section("Players");
@@ -225,12 +240,39 @@ public sealed partial class MainWindow : Window
             if (MaterialKos.Button("Add dummy", MaterialButton.Outlined, FontAwesomeIcon.Robot)) addNote = game.AddDummy() ? "" : "All dummy names are in use.";
         }
 
+        ImGui.SameLine();
+        using (ImRaii.Disabled(game.Players.Count == 0))
+        {
+            if (MaterialKos.Button("Clear players", MaterialButton.Text, FontAwesomeIcon.UserSlash) && ImGui.GetIO().KeyCtrl)
+            {
+                plugin.ClearPlayers();
+                pickTarget = null;
+                addRollFor = null;
+                editIndex = -1;
+                addNote = "";
+            }
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Ctrl+click: remove every name from the list. A round in play stops; history stays until New game.");
+        }
+
         if (addNote.Length > 0) ImGui.TextDisabled(addNote);
+    }
+
+    private void NewGame()
+    {
+        plugin.NewGame();
+        pickTarget = null;
+        pickPiece = null;
+        editIndex = -1;
+        addRollFor = null;
+        addNote = "";
+        rollNote = "";
     }
 
     private void DrawHistory()
     {
         var game = plugin.Game;
+        if (editIndex >= 0 && !game.IsEditable(editIndex)) editIndex = -1; // the round moved on
+        if (game.CanEditRolls) DrawAddRoll(game);
         var rounds = game.RollLog.Select(r => r.Round).Concat(game.History.Select(h => h.Round)).Distinct().OrderDescending().ToList();
         if (rounds.Count == 0) { Kos.EmptyState("No rolls yet."); return; }
 
@@ -242,17 +284,46 @@ public sealed partial class MainWindow : Window
                 : $"Round {round}: {result.Winner} won with {result.WinningRoll}; {result.Target} lost their {Lines.PieceName(result.Piece)} ({(result.TargetLivesLeft > 0 ? $"{result.TargetLivesLeft} left" : "out")})";
             if (!ImGui.CollapsingHeader($"{title}###round{round}", round == game.Round ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) continue;
 
-            using var table = ImRaii.Table($"##rolls{round}", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH);
+            var editable = round == game.Round && game.CanEditRolls;
+            using var table = ImRaii.Table($"##rolls{round}", editable ? 5 : 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH);
             if (!table) continue;
+            var cell = 70 * ImGuiHelpers.GlobalScale;
             ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Roll", ImGuiTableColumnFlags.WidthFixed, 40);
-            ImGui.TableSetupColumn("Out of", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Roll", ImGuiTableColumnFlags.WidthFixed, editable ? cell : 40);
+            ImGui.TableSetupColumn("Out of", ImGuiTableColumnFlags.WidthFixed, editable ? cell : 50);
             ImGui.TableSetupColumn("Note", ImGuiTableColumnFlags.WidthStretch);
+            if (editable) ImGui.TableSetupColumn("##edit", ImGuiTableColumnFlags.WidthFixed, 5.5f * ImGui.GetFrameHeight()); // two icon-only MaterialKos buttons, ~2.5 frame heights each
             ImGui.TableHeadersRow();
-            foreach (var r in game.RollLog.Where(r => r.Round == round))
+            Action? change = null; // applied after the table so the log is not changed mid-loop
+            for (var i = 0; i < game.RollLog.Count; i++)
             {
+                var r = game.RollLog[i];
+                if (r.Round != round) continue;
+                using var id = ImRaii.PushId(i);
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(r.Player);
+                if (editable && i == editIndex)
+                {
+                    ImGui.TableNextColumn(); ImGui.SetNextItemWidth(-1); ImGui.InputInt("##v", ref editValue, 0);
+                    ImGui.TableNextColumn(); ImGui.SetNextItemWidth(-1); ImGui.InputInt("##m", ref editMax, 0);
+                    ImGui.TableNextColumn();
+                    var ok = DeathrollGame.IsPossible(editValue, MaxOf(editMax));
+                    if (ok) ImGui.TextDisabled("out of 999 = a plain roll");
+                    else ImGui.TextColored(ImGuiColors.DalamudRed, "0 up to the out-of (at least 2)");
+                    ImGui.TableNextColumn();
+                    using (ImRaii.Disabled(!ok))
+                        if (MaterialKos.Button("##save", MaterialButton.Filled, FontAwesomeIcon.Check))
+                        {
+                            var (at, v, m) = (i, editValue, MaxOf(editMax));
+                            change = () => rollNote = plugin.EditRoll(at, v, m) ? "Roll changed; the round was worked out again from its start." : "That roll can no longer be changed.";
+                        }
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Save");
+                    ImGui.SameLine();
+                    if (MaterialKos.Button("##cancel", MaterialButton.Text, FontAwesomeIcon.Times)) editIndex = -1;
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip("Cancel");
+                    continue;
+                }
+
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(r.Value.ToString());
                 ImGui.TableNextColumn(); ImGui.TextUnformatted((r.Max ?? DeathrollGame.OpeningMax).ToString());
                 ImGui.TableNextColumn();
@@ -260,8 +331,83 @@ public sealed partial class MainWindow : Window
                 if (r.Note is RollNote.Counted or RollNote.Opening) ImGui.TextDisabled(note);
                 else if (r.Note == RollNote.Won) ImGui.TextColored(ImGuiColors.HealerGreen, note);
                 else ImGui.TextColored(ImGuiColors.DalamudOrange, note);
+                if (!editable) continue;
+                ImGui.TableNextColumn();
+                if (MaterialKos.Button("##edit", MaterialButton.Text, FontAwesomeIcon.Pen))
+                {
+                    editIndex = i;
+                    editValue = r.Value;
+                    editMax = r.Max ?? DeathrollGame.OpeningMax;
+                }
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Edit this roll");
+                ImGui.SameLine();
+                if (MaterialKos.Button("##del", MaterialButton.Text, FontAwesomeIcon.Trash) && ImGui.GetIO().KeyCtrl)
+                {
+                    var at = i;
+                    change = () => rollNote = plugin.DeleteRoll(at) ? "Roll deleted; the round was worked out again from its start." : "That roll can no longer be deleted.";
+                }
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: delete this roll");
+            }
+
+            if (change is not null)
+            {
+                editIndex = -1;
+                change();
             }
         }
+    }
+
+    /// <summary>The Out of box: 999 means a plain /random; anything else is checked by IsPossible.</summary>
+    private static int? MaxOf(int outOf) => outOf == DeathrollGame.OpeningMax ? null : outOf;
+
+    /// <summary>Above the rounds: enter a roll the plugin missed. It is judged as if it had just come from chat.</summary>
+    private void DrawAddRoll(DeathrollGame game)
+    {
+        Kos.Section($"Round {game.Round}: add a missed roll");
+        var players = game.Active.ToList();
+        if (addRollFor is not null && players.All(p => p.Name != addRollFor)) addRollFor = null;
+        addRollFor ??= (game.Phase == Phase.Opening ? game.Waiting.FirstOrDefault() : game.Current)?.Name ?? players.FirstOrDefault()?.Name;
+
+        ImGui.SetNextItemWidth(180);
+        using (var combo = ImRaii.Combo("##addfor", addRollFor ?? "Player..."))
+        {
+            if (combo)
+                foreach (var p in players)
+                    if (ImGui.Selectable(p.Name, p.Name == addRollFor))
+                    {
+                        addRollFor = p.Name;
+                        addMax = 0; // refilled with what this player should roll to
+                    }
+        }
+
+        var expected = game.Phase == Phase.Opening ? DeathrollGame.OpeningMax : game.Limit ?? DeathrollGame.OpeningMax;
+        if (addMax == 0) addMax = expected;
+        ImGui.SameLine();
+        ImGui.TextUnformatted("rolled");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(70 * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt("##addv", ref addValue, 0);
+        ImGui.SameLine();
+        ImGui.TextUnformatted("out of");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(70 * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt("##addm", ref addMax, 0);
+        ImGui.SameLine();
+        var who = players.FirstOrDefault(p => p.Name == addRollFor);
+        var ok = who is not null && DeathrollGame.IsPossible(addValue, MaxOf(addMax));
+        using (ImRaii.Disabled(!ok))
+        {
+            if (MaterialKos.Button("Add roll", MaterialButton.Tonal, FontAwesomeIcon.Plus) && who is not null)
+            {
+                rollNote = plugin.AddRoll(who, addValue, MaxOf(addMax));
+                addMax = 0;
+                addRollFor = null; // next time it follows whoever is up
+            }
+        }
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip("Counts as if it had just come from chat, at the end of this round's rolls. Out of 999 = a plain /random.");
+        if (rollNote.Length > 0) ImGui.TextDisabled(rollNote);
+        ImGui.Spacing();
     }
 
     private void DrawTexts()
@@ -413,6 +559,7 @@ public sealed partial class MainWindow : Window
         RollNote.WrongNumber => "wrong number (not counted unless accepted)",
         RollNote.Accepted => "wrong number, accepted",
         RollNote.Won => "winning roll",
+        RollNote.Void => "no longer counts (round already won, or player left)",
         _ => "",
     };
 

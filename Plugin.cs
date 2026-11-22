@@ -146,8 +146,56 @@ public sealed class Plugin : IDalamudPlugin
 
     public void StartRound()
     {
+        if (!Game.CanStartRound) return;
+        LastAlert = null; // an alert about the round before (or the one being restarted) is stale now
         Game.StartRound();
         if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null), Config.Messages));
+    }
+
+    /// <summary>A clean slate: the game reset, plus the window's leftovers from the last one (alert, unposted lines, roll guard).</summary>
+    public void NewGame()
+    {
+        Game.NewGame();
+        LastAlert = null;
+        Proposed.Clear();
+        lastRollKey = default;
+        lastRollAt = 0;
+    }
+
+    /// <summary>Empties the player list (and their hand-placed rings); the round in play stops.</summary>
+    public void ClearPlayers()
+    {
+        Game.ClearPlayers();
+        spots.Clear();
+        LastAlert = null;
+        Proposed.Clear();
+    }
+
+    /// <summary>The host fixes a roll of the round in play; a call or win line is proposed if the turn moved because of it.</summary>
+    public bool EditRoll(int index, int value, int? max) => AfterEdit(() => Game.EditRoll(index, value, max));
+
+    public bool DeleteRoll(int index) => AfterEdit(() => Game.DeleteRoll(index));
+
+    /// <summary>A roll the plugin missed, entered by the host: judged exactly as if it had just come from chat.</summary>
+    public string AddRoll(Player p, int value, int? max)
+    {
+        if (!Game.CanEditRolls || !Game.Players.Contains(p)) return "Rolls can be added once a round has started.";
+        if (!DeathrollGame.IsPossible(value, max)) return "Not a possible roll: 0 up to the number rolled to (at least 2).";
+        var count = Game.RollLog.Count;
+        Receive(p, value, max);
+        return Game.RollLog.Count > count ? $"Added {p.Name}'s {value}." : $"Not added: {p.Name} cannot roll now (out, or the round is already won).";
+    }
+
+    private bool AfterEdit(Func<bool> edit)
+    {
+        var before = (Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll);
+        if (!edit()) return false;
+        LastAlert = null;
+        if ((Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll) == before) return true;
+        if (Game.Phase == Phase.Pick && Game.Winner is { } w) Propose(Lines.Won(w.Name, Game.WinningRoll, Game.Round, m: Config.Messages));
+        else if (Game.Phase == Phase.Turns && Game.Pending is null) CallCurrent();
+        else Proposed.Clear(); // back in the opening, or a wrong number waits for the host: an older call is stale
+        return true;
     }
 
     public void Pick(Player target, Piece piece)
