@@ -1,0 +1,26 @@
+name: Library pins
+
+# Keeps the KosLib and KosDraw submodules (and any other github.com/priestkos library submodule) on their library's
+# main: hourly, the shared workflow in KosLib moves the pins, builds, runs the tests and pushes the pin commit, or opens
+# an issue when they fail. A pin bump does not cut a release on its own. See KosLib/.github/workflows/pin-bump.yml.
+
+on:
+  schedule:
+    - cron: '17 * * * *' # hourly
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the pin commit
+  issues: write # open or read "Library pin bump blocked" issues
+  actions: write # dispatch Build on the new HEAD
+
+concurrency:
+  group: library-pins
+  cancel-in-progress: false
+
+jobs:
+  pins:
+    uses: priestkos/KosLib/.github/workflows/pin-bump.yml@main
+    with:
+      project: StripDeathroll14.csproj
+      test-command: dotnet test StripDeathroll14.Tests/StripDeathroll14.Tests.csproj -c Release

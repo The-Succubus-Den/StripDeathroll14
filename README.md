@@ -82,7 +82,8 @@ Requires the .NET 10 SDK and the Dalamud dev distribution
 (`%APPDATA%\XIVLauncher\addon\Hooks\dev`, or `DALAMUD_HOME`). The shared UI pieces come from the
 [KosLib](https://github.com/priestkos/KosLib) submodule and the world markers from the
 [KosDraw](https://github.com/priestkos/KosDraw) submodule, so clone with `git clone --recurse-submodules`
-(or run `git submodule update --init` in an existing clone).
+(or run `git submodule update --init` in an existing clone). Each hour the Library pins workflow moves both pins to
+their library's latest `main` once the build and tests pass, or opens an issue if they don't.
 
 ```
 dotnet build -c Debug      # load bin/Debug/StripDeathroll14.dll as a dev plugin
