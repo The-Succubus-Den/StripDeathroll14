@@ -100,7 +100,7 @@ public sealed partial class MainWindow
             ImGui.InvisibleButton($"##seat{i}", new Vector2(2 * node));
             if (ImGui.IsItemHovered() && !ImGui.IsMouseDragging(ImGuiMouseButton.Left))
                 ImGui.SetTooltip($"{p.Name}{(p.IsDummy ? " (dummy)" : "")}\nSeat {i + 1}{(isCurrent ? ", next to roll" : p == next ? ", up after that" : "")}\nWearing: {Worn(p)}\nWins: {p.Wins}" +
-                    (game.LastRoll(p) is { } l ? $"\nLast roll: {l.Value} (round {l.Round}, {NoteLabel(l.Note)})" : ""));
+                    (game.LastRoll(p) is { } l ? $"\nLast roll: {l.Value} (round {l.Round}, {Lines.NoteLabel(l.Note)})" : ""));
             if (ImGui.BeginDragDropSource())
             {
                 dragFrom = i;

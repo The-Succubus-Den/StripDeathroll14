@@ -79,6 +79,9 @@ public sealed class Player
 
 public sealed record RoundRecord(int Round, string Winner, int WinningRoll, string Target, Piece Piece, int TargetLivesLeft);
 
+/// <summary>One game's results and rolls: a finished game kept by New game, or a snapshot of the game in play.</summary>
+public sealed record GameRecord(int Number, IReadOnlyList<RoundRecord> History, IReadOnlyList<RollRecord> RollLog);
+
 /// <summary>Accepted: the host took this wrong-number roll, so a replay after an edit takes it again.</summary>
 public sealed record RollRecord(int Round, string Player, int Value, int? Max, RollNote Note, bool Accepted = false);
 
@@ -103,6 +106,35 @@ public sealed class DeathrollGame
     public List<Player> Players { get; } = [];
     public List<RoundRecord> History { get; } = [];
     public List<RollRecord> RollLog { get; } = [];
+
+    /// <summary>The game in play is Game N; New game files it under PastGames and starts Game N+1.</summary>
+    public int GameNumber { get; private set; } = 1;
+
+    /// <summary>Earlier games, oldest first. Kept until the host clears the history (or the plugin reloads).</summary>
+    public List<GameRecord> PastGames { get; } = [];
+
+    /// <summary>Every game with something in it, oldest first: the past games, then the game in play.</summary>
+    public IEnumerable<GameRecord> AllGames =>
+        History.Count == 0 && RollLog.Count == 0 ? PastGames : PastGames.Append(new GameRecord(GameNumber, History.ToList(), RollLog.ToList()));
+
+    /// <summary>No round in play, so the current game's lines can go too (a round in play needs its rolls to be edited).</summary>
+    public bool CanClearCurrentHistory => Phase is Phase.Setup or Phase.GameOver;
+
+    /// <summary>
+    /// Drops the past games, and the current game's results and rolls when no round is in play. Players, pieces and the
+    /// round number are untouched. With nothing left, numbering starts again at Game 1.
+    /// </summary>
+    public void ClearHistory()
+    {
+        PastGames.Clear();
+        if (CanClearCurrentHistory)
+        {
+            History.Clear();
+            RollLog.Clear();
+        }
+
+        if (History.Count == 0 && RollLog.Count == 0) GameNumber = 1;
+    }
     public Phase Phase { get; private set; } = Phase.Setup;
     public int Round { get; private set; }
     public Player? Current { get; private set; }
@@ -242,8 +274,15 @@ public sealed class DeathrollGame
         }
     }
 
+    /// <summary>Everyone back to 3 pieces and round 0; the game so far (if it had any rolls) is kept as Game N in PastGames.</summary>
     public void NewGame()
     {
+        if (History.Count > 0 || RollLog.Count > 0)
+        {
+            PastGames.Add(new GameRecord(GameNumber, History.ToList(), RollLog.ToList()));
+            GameNumber++;
+        }
+
         foreach (var p in Players)
         {
             p.Worn.Clear();
@@ -540,6 +579,20 @@ public sealed class Messages
 /// <summary>Every line the plugin posts, and the command prefixes it posts them with.</summary>
 public static class Lines
 {
+    /// <summary>What became of a roll, as the History tab and the CSV export word it.</summary>
+    public static string NoteLabel(RollNote n) => n switch
+    {
+        RollNote.Opening => "opening",
+        RollNote.OpeningWrongNumber => "opening, wrong number (not counted)",
+        RollNote.OpeningRepeat => "second opening roll (ignored)",
+        RollNote.OutOfTurn => "out of turn (ignored)",
+        RollNote.WrongNumber => "wrong number (not counted unless accepted)",
+        RollNote.Accepted => "wrong number, accepted",
+        RollNote.Won => "winning roll",
+        RollNote.Void => "no longer counts (round already won, or player left)",
+        _ => "counted",
+    };
+
     /// <summary>
     /// <paramref name="template"/> (or <paramref name="fallback"/> when blank) with each {key} replaced. Values are
     /// plugin-made (validated names, numbers, roll commands), so they can never hold a {key} of their own.
@@ -670,5 +723,39 @@ public sealed class TurnCues
         (Player, Player)? handover = current is { } a && g.Current is { } b && a != b ? (a, b) : null;
         current = g.Current;
         return (fresh, handover);
+    }
+}
+
+/// <summary>The history as CSV: per game and round, every roll in order, then a result line for a finished round.</summary>
+public static class HistoryCsv
+{
+    public const string Header = "Game,Round,Line,Player,Roll,Out of,Note,Stripped,Piece,Pieces left";
+
+    public static string Build(IEnumerable<GameRecord> games)
+    {
+        var sb = new System.Text.StringBuilder(Header).Append("\r\n");
+        foreach (var g in games)
+            foreach (var round in g.RollLog.Select(r => r.Round).Concat(g.History.Select(h => h.Round)).Distinct().Order())
+            {
+                foreach (var r in g.RollLog.Where(r => r.Round == round))
+                    Row(sb, g.Number, round, "roll", r.Player, r.Value, r.Max ?? DeathrollGame.OpeningMax, Lines.NoteLabel(r.Note), "", "", "");
+                if (g.History.FirstOrDefault(h => h.Round == round) is { } h)
+                    Row(sb, g.Number, round, "result", h.Winner, h.WinningRoll, null, "won the round", h.Target, Lines.PieceName(h.Piece),
+                        h.TargetLivesLeft > 0 ? h.TargetLivesLeft.ToString() : "out");
+            }
+
+        return sb.ToString();
+    }
+
+    private static void Row(System.Text.StringBuilder sb, int game, int round, string line, string player, int roll, int? outOf, string note,
+        string stripped, string piece, string left) =>
+        sb.AppendJoin(',', game.ToString(), round.ToString(), line, Field(player), roll.ToString(), outOf?.ToString() ?? "", Field(note),
+            Field(stripped), piece, left).Append("\r\n");
+
+    /// <summary>Quoted when it holds a comma, quote or line break; a leading = + - @ is defused so a spreadsheet never runs it.</summary>
+    public static string Field(string s)
+    {
+        if (s.Length > 0 && s[0] is '=' or '+' or '-' or '@' or '\t' or '\r') s = "'" + s;
+        return s.IndexOfAny([',', '"', '\n', '\r']) < 0 ? s : '"' + s.Replace("\"", "\"\"") + '"';
     }
 }

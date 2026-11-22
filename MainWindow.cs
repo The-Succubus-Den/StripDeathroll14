@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Colors;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
@@ -23,6 +24,8 @@ public sealed partial class MainWindow : Window
     private string? addRollFor;     // the player picked in the Add a missed roll row
     private int addValue, addMax;
     private string rollNote = "";
+    private string historyNote = "";
+    private readonly FileDialogManager fileDialog = new();
 
     public MainWindow(Plugin plugin) : base("Strip Deathroll###StripDeathroll14")
     {
@@ -54,6 +57,7 @@ public sealed partial class MainWindow : Window
     public override void Draw()
     {
         KosTheme.Frost(); // nothing unless PreDraw pushed the frosted look
+        fileDialog.Draw();
         using var bar = ImRaii.TabBar("##tabs");
         if (!bar) return;
         using (var t = ImRaii.TabItem("Game")) if (t) DrawGame();
@@ -153,7 +157,7 @@ public sealed partial class MainWindow : Window
         }
         ImGui.SameLine();
         if (MaterialKos.Button("New game", MaterialButton.Text, FontAwesomeIcon.Broom) && ImGui.GetIO().KeyCtrl) NewGame();
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: a clean slate. Everyone back to 3 pieces, round 1 again, history, alerts and unposted lines cleared. Players stay.");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Ctrl+click: a clean slate. Everyone back to 3 pieces, round 1 again, alerts and unposted lines cleared. This game moves to the History tab as Game N. Players stay.");
 
         DrawProposed();
         Kos.Section("Players");
@@ -266,25 +270,89 @@ public sealed partial class MainWindow : Window
         addRollFor = null;
         addNote = "";
         rollNote = "";
+        historyNote = "";
     }
 
     private void DrawHistory()
     {
         var game = plugin.Game;
         if (editIndex >= 0 && !game.IsEditable(editIndex)) editIndex = -1; // the round moved on
+        DrawHistoryBar(game);
         if (game.CanEditRolls) DrawAddRoll(game);
-        var rounds = game.RollLog.Select(r => r.Round).Concat(game.History.Select(h => h.Round)).Distinct().OrderDescending().ToList();
-        if (rounds.Count == 0) { Kos.EmptyState("No rolls yet."); return; }
+        var current = game.AllGames.LastOrDefault(g => g.Number == game.GameNumber);
+        if (current is null && game.PastGames.Count == 0) { Kos.EmptyState("No rolls yet."); return; }
 
-        foreach (var round in rounds) // newest first, the current round open
+        if (current is not null && ImGui.CollapsingHeader($"Game {current.Number} (this game)###game{current.Number}", ImGuiTreeNodeFlags.DefaultOpen))
+            using (ImRaii.PushIndent())
+                DrawRounds(game, current, true);
+
+        foreach (var past in Enumerable.Reverse(game.PastGames)) // newest first, closed
         {
-            var result = game.History.FirstOrDefault(h => h.Round == round);
-            var title = result is null
-                ? $"Round {round}" + (round == game.Round && game.Phase is not Phase.Setup ? " (in play)" : " (no result)")
-                : $"Round {round}: {result.Winner} won with {result.WinningRoll}; {result.Target} lost their {Lines.PieceName(result.Piece)} ({(result.TargetLivesLeft > 0 ? $"{result.TargetLivesLeft} left" : "out")})";
-            if (!ImGui.CollapsingHeader($"{title}###round{round}", round == game.Round ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) continue;
+            var wins = past.History.GroupBy(h => h.Winner).OrderByDescending(w => w.Count()).FirstOrDefault();
+            var title = $"Game {past.Number}: {past.History.Count} round{(past.History.Count == 1 ? "" : "s")} won"
+                        + (wins is null ? "" : $", most wins {wins.Key} ({wins.Count()})");
+            if (!ImGui.CollapsingHeader($"{title}###game{past.Number}")) continue;
+            using (ImRaii.PushIndent())
+                DrawRounds(game, past, false);
+        }
+    }
 
-            var editable = round == game.Round && game.CanEditRolls;
+    /// <summary>Export and clear, above the games.</summary>
+    private void DrawHistoryBar(DeathrollGame game)
+    {
+        var any = game.AllGames.Any();
+        using (ImRaii.Disabled(!any))
+        {
+            if (MaterialKos.Button("Export CSV", MaterialButton.Tonal, FontAwesomeIcon.FileExport))
+                fileDialog.SaveFileDialog("Export history as CSV", ".csv", $"StripDeathroll history {DateTime.Now:yyyy-MM-dd HHmm}", ".csv", (ok, path) =>
+                {
+                    if (!ok) return;
+                    try
+                    {
+                        File.WriteAllText(path, HistoryCsv.Build(plugin.Game.AllGames), new System.Text.UTF8Encoding(true)); // BOM: Excel reads it as UTF-8
+                        historyNote = $"Saved {Path.GetFileName(path)}.";
+                    }
+                    catch (Exception e)
+                    {
+                        historyNote = $"Could not save: {e.Message}";
+                    }
+                });
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip("Every game in the history, this one included: one line per roll, plus each round's result.");
+            ImGui.SameLine();
+            if (MaterialKos.Button("Clear history", MaterialButton.Text, FontAwesomeIcon.Trash) && ImGui.GetIO().KeyCtrl)
+            {
+                var keptCurrent = !game.CanClearCurrentHistory && (game.History.Count > 0 || game.RollLog.Count > 0);
+                game.ClearHistory();
+                editIndex = -1;
+                historyNote = keptCurrent ? "Past games cleared. This game's rounds stay while a round is in play." : "History cleared.";
+            }
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip("Ctrl+click: delete every past game, and this game's rounds too unless a round is in play. Players and pieces stay.");
+        }
+
+        if (historyNote.Length > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled(historyNote);
+        }
+        ImGui.Spacing();
+    }
+
+    /// <summary>One game's rounds, newest first. Only the game in play's current round can be edited.</summary>
+    private void DrawRounds(DeathrollGame game, GameRecord g, bool current)
+    {
+        using var gameId = ImRaii.PushId(g.Number);
+        var rounds = g.RollLog.Select(r => r.Round).Concat(g.History.Select(h => h.Round)).Distinct().OrderDescending().ToList();
+        foreach (var round in rounds)
+        {
+            var result = g.History.FirstOrDefault(h => h.Round == round);
+            var title = result is null
+                ? $"Round {round}" + (current && round == game.Round && game.Phase is not Phase.Setup and not Phase.GameOver ? " (in play)" : " (no result)")
+                : $"Round {round}: {result.Winner} won with {result.WinningRoll}; {result.Target} lost their {Lines.PieceName(result.Piece)} ({(result.TargetLivesLeft > 0 ? $"{result.TargetLivesLeft} left" : "out")})";
+            if (!ImGui.CollapsingHeader($"{title}###round{round}", current && round == game.Round ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None)) continue;
+
+            var editable = current && round == game.Round && game.CanEditRolls;
             using var table = ImRaii.Table($"##rolls{round}", editable ? 5 : 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH);
             if (!table) continue;
             var cell = 70 * ImGuiHelpers.GlobalScale;
@@ -295,9 +363,9 @@ public sealed partial class MainWindow : Window
             if (editable) ImGui.TableSetupColumn("##edit", ImGuiTableColumnFlags.WidthFixed, 5.5f * ImGui.GetFrameHeight()); // two icon-only MaterialKos buttons, ~2.5 frame heights each
             ImGui.TableHeadersRow();
             Action? change = null; // applied after the table so the log is not changed mid-loop
-            for (var i = 0; i < game.RollLog.Count; i++)
+            for (var i = 0; i < g.RollLog.Count; i++) // the current game's snapshot keeps RollLog's indices
             {
-                var r = game.RollLog[i];
+                var r = g.RollLog[i];
                 if (r.Round != round) continue;
                 using var id = ImRaii.PushId(i);
                 ImGui.TableNextRow();
@@ -327,7 +395,7 @@ public sealed partial class MainWindow : Window
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(r.Value.ToString());
                 ImGui.TableNextColumn(); ImGui.TextUnformatted((r.Max ?? DeathrollGame.OpeningMax).ToString());
                 ImGui.TableNextColumn();
-                var note = NoteLabel(r.Note);
+                var note = Lines.NoteLabel(r.Note);
                 if (r.Note is RollNote.Counted or RollNote.Opening) ImGui.TextDisabled(note);
                 else if (r.Note == RollNote.Won) ImGui.TextColored(ImGuiColors.HealerGreen, note);
                 else ImGui.TextColored(ImGuiColors.DalamudOrange, note);
@@ -549,19 +617,6 @@ public sealed partial class MainWindow : Window
     private static string VenueLabel(Venue v) => v == Venue.Private ? "Private room (yell)" : "Public (party/alliance)";
 
     private static string CallLabel(CallChannel c) => c == CallChannel.Venue ? "Venue default" : c.ToString();
-
-    private static string NoteLabel(RollNote n) => n switch
-    {
-        RollNote.Opening => "opening",
-        RollNote.OpeningWrongNumber => "opening, wrong number (not counted)",
-        RollNote.OpeningRepeat => "second opening roll (ignored)",
-        RollNote.OutOfTurn => "out of turn (ignored)",
-        RollNote.WrongNumber => "wrong number (not counted unless accepted)",
-        RollNote.Accepted => "wrong number, accepted",
-        RollNote.Won => "winning roll",
-        RollNote.Void => "no longer counts (round already won, or player left)",
-        _ => "",
-    };
 
     private string Status(DeathrollGame g) => g.Phase switch
     {

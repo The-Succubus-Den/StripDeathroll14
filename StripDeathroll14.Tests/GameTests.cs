@@ -833,6 +833,68 @@ public class GameTests
         Assert.Equal(0, g.Round);
     }
 
+    [Fact]
+    public void NewGameFilesTheGameUnderPastGames()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        g.NewGame();                             // nothing played: no empty Game 1
+        Assert.Empty(g.PastGames);
+        Assert.Equal(1, g.GameNumber);
+        WinRound(g, "Ann Lee", "Bo Ray");
+        g.OnRoll(P(g, "Ann Lee"), 300, null);
+        var log = g.RollLog.ToList();
+        g.NewGame();
+        var one = Assert.Single(g.PastGames);
+        Assert.Equal(1, one.Number);
+        Assert.Equal(log, one.RollLog);
+        Assert.Single(one.History);
+        Assert.Empty(g.RollLog);                 // the new game starts clean
+        Assert.Empty(g.History);
+        Assert.Equal(2, g.GameNumber);
+        Assert.Equal(0, g.Round);
+        Assert.Equal(3, P(g, "Bo Ray").Worn.Count);
+        Assert.Equal([1], g.AllGames.Select(x => x.Number));
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 10, null);
+        Assert.Equal([1, 2], g.AllGames.Select(x => x.Number));
+    }
+
+    [Fact]
+    public void ClearHistoryKeepsARoundInPlay()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        WinRound(g, "Ann Lee", "Bo Ray");
+        g.NewGame();
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 10, null);
+        g.ClearHistory();                        // round in play: its rolls stay, so they can still be edited
+        Assert.Empty(g.PastGames);
+        Assert.Single(g.RollLog);
+        Assert.Equal(2, g.GameNumber);
+        g.ClearPlayers();                        // no round in play now
+        g.ClearHistory();
+        Assert.Empty(g.RollLog);
+        Assert.Equal(1, g.GameNumber);
+        Assert.Empty(g.AllGames);
+    }
+
+    [Fact]
+    public void HistoryCsvHasARowPerRollAndPerResult()
+    {
+        var g = Game("Ann Lee", "Bo Ray");
+        WinRound(g, "Ann Lee", "Bo Ray");
+        g.NewGame();
+        var csv = HistoryCsv.Build(g.AllGames).Split("\r\n");
+        Assert.Equal(HistoryCsv.Header, csv[0]);
+        Assert.Equal("1,1,roll,Ann Lee,999,999,opening,,,", csv[1]);
+        Assert.Equal("1,1,roll,Ann Lee,1,999,winning roll,,,", csv[3]);
+        Assert.Equal("1,1,result,Ann Lee,1,,won the round,Bo Ray,top,2", csv[4]);
+        Assert.Equal("", csv[^1]);
+        Assert.Equal("\"a, \"\"b\"\"\"", HistoryCsv.Field("a, \"b\""));
+        Assert.Equal("'=1+1", HistoryCsv.Field("=1+1"));
+        Assert.Equal("\"'-a,b\"", HistoryCsv.Field("-a,b"));
+    }
+
     private static void WinRound(DeathrollGame g, string winner, string target)
     {
         if (g.Phase != Phase.Opening) g.StartRound();
