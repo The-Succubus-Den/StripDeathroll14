@@ -1,0 +1,109 @@
+name: Republish upstream release
+
+# Runs only in the org mirror (github.com/The-Succubus-Den/StripDeathroll14). When mirror-to-org.yml in
+# priestkos/StripDeathroll14 pushes a commit here, this waits for that repo's Release run on the same commit and
+# republishes its latest.zip under the same tag, so both plugin repositories (PlogonYes and venue-utils) offer the
+# identical build and version. A commit that cuts no release upstream (docs, a library pin bump) cuts none here.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream tag to republish (blank = the latest upstream release)'
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: org-release
+  cancel-in-progress: false
+
+jobs:
+  republish:
+    if: github.repository == 'The-Succubus-Den/StripDeathroll14'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM: priestkos/StripDeathroll14
+    steps:
+      - name: Find the upstream release
+        id: find
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          release_for_sha() {
+            gh api "repos/$UPSTREAM/releases?per_page=100" \
+              --jq "[.[] | select(.target_commitish == \"$GITHUB_SHA\")][0].tag_name // empty"
+          }
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            tag="$INPUT_TAG"
+            [ -n "$tag" ] || tag=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
+          else
+            tag=''
+            for _ in $(seq 1 100); do # up to ~50 min
+              tag=$(release_for_sha)
+              [ -n "$tag" ] && break
+              pending=$(gh api "repos/$UPSTREAM/actions/workflows/release.yml/runs?head_sha=$GITHUB_SHA" \
+                --jq '[.workflow_runs[] | select(.status != "completed")] | length')
+              if [ "$pending" = 0 ]; then
+                tag=$(release_for_sha) # the run may have published just before completing
+                break
+              fi
+              echo "Upstream Release run for $GITHUB_SHA still running; waiting"
+              sleep 30
+            done
+          fi
+          if [ -z "$tag" ]; then
+            echo "::notice::No upstream release for $GITHUB_SHA (docs or library pin commit, or the upstream run failed); nothing to republish."
+            echo 'tag=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Upstream release: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Republish it here
+        if: steps.find.outputs.tag != ''
+        env:
+          TAG: ${{ steps.find.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists here; skipping."
+            exit 0
+          fi
+          gh release download "$TAG" -R "$UPSTREAM" -p latest.zip -D upstream
+          # The zip must carry exactly one StripDeathroll14 manifest whose version is the tag's.
+          python3 - "$TAG" <<'PY'
+          import json, sys, zipfile
+          tag = sys.argv[1]
+          with zipfile.ZipFile("upstream/latest.zip") as zf:
+              names = zf.namelist()
+              if "StripDeathroll14.dll" not in names:
+                  sys.exit("StripDeathroll14.dll missing from latest.zip")
+              manifest = json.loads(zf.read("StripDeathroll14.json").decode("utf-8-sig"))
+          want = tag.removeprefix("v")
+          while want.count(".") < 3:
+              want += ".0"
+          if manifest.get("AssemblyVersion") != want:
+              sys.exit(f"manifest AssemblyVersion {manifest.get('AssemblyVersion')!r} != tag {tag}")
+          print(f"latest.zip OK: {manifest['InternalName']} {manifest['AssemblyVersion']}")
+          PY
+          # The mirror push carries the tag; create it here only if it has not arrived. Release creation then names
+          # the existing tag with no --target: GitHub refuses GITHUB_TOKEN a --target release whose commit range
+          # touches .github/workflows (it wants the workflows permission, which GITHUB_TOKEN cannot get; cli/cli#9514).
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            sha=$(gh api "repos/$UPSTREAM/commits/$TAG" --jq .sha)
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -X POST -f ref="refs/tags/$TAG" -f sha="$sha" >/dev/null
+          fi
+          {
+            echo "Mirror of [$UPSTREAM $TAG](https://github.com/$UPSTREAM/releases/tag/$TAG): same latest.zip, same version."
+            echo
+            gh release view "$TAG" -R "$UPSTREAM" --json body --jq .body
+          } > notes.md
+          gh release create "$TAG" upstream/latest.zip -R "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes-file notes.md

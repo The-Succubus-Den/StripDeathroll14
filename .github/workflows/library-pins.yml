@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   pins:
+    if: github.repository == 'priestkos/StripDeathroll14' # never in the org mirror
     uses: priestkos/KosLib/.github/workflows/pin-bump.yml@main
     with:
       project: StripDeathroll14.csproj

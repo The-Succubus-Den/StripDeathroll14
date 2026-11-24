@@ -15,6 +15,8 @@ on:
       - '*.mp4'
       - '.github/workflows/build.yml'
       - '.github/workflows/library-pins.yml'
+      - '.github/workflows/mirror-to-org.yml'
+      - '.github/workflows/org-release.yml'
   workflow_dispatch:
 
 concurrency:
@@ -26,7 +28,8 @@ permissions:
 
 jobs:
   release:
-    if: github.event_name != 'pull_request'
+    # Builds only in the source repo; the org mirror republishes this release instead (org-release.yml).
+    if: github.repository == 'priestkos/StripDeathroll14' && github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7

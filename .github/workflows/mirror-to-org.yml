@@ -1,0 +1,52 @@
+name: Mirror to The-Succubus-Den
+
+# Pushes main and every tag to github.com/The-Succubus-Den/StripDeathroll14, where org-release.yml republishes this
+# repo's release for the pushed commit and the venue-utils pluginmaster lists it. Pushes through a write deploy key on
+# the org repo (secret ORG_MIRROR_DEPLOY_KEY): a push made with GITHUB_TOKEN would not start the org repo's workflows.
+# The hourly run catches commits that reach main without a push event here (library pin bumps pushed by a workflow).
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '41 * * * *' # hourly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-org
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'priestkos/StripDeathroll14'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push main and tags to the org mirror
+        env:
+          DEPLOY_KEY: ${{ secrets.ORG_MIRROR_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_KEY" ]; then echo '::error::secret ORG_MIRROR_DEPLOY_KEY is not set'; exit 1; fi
+          # Latest main and tags, not just the commit that started this run.
+          git fetch --prune --tags --force origin '+refs/heads/main:refs/remotes/origin/main'
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/org_mirror
+          chmod 600 ~/.ssh/org_mirror
+          # GitHub's published ed25519 host key (api.github.com/meta), pinned instead of trusted on first use.
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND='ssh -i ~/.ssh/org_mirror -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes'
+          dest='git@github.com:The-Succubus-Den/StripDeathroll14.git'
+          before=$(git ls-remote "$dest" refs/heads/main | cut -f1)
+          after=$(git rev-parse refs/remotes/origin/main)
+          git push --force "$dest" 'refs/remotes/origin/main:refs/heads/main' 'refs/tags/*:refs/tags/*'
+          echo "org mirror main: ${before:-<none>} -> $after"
