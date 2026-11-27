@@ -7,7 +7,10 @@ public sealed class Configuration : IPluginConfiguration
 {
     public const int MinReminderSeconds = 15; // floor: never nag faster than this
 
-    public int Version { get; set; } = 1;
+    public const int CurrentVersion = 2;
+
+    /// <summary>1: the reminder channel was ReminderChannel (Say or Party). 2: ReminderCallChannel, any call channel.</summary>
+    public int Version { get; set; } = CurrentVersion;
     public Venue Venue { get; set; } = Venue.Private;
 
     /// <summary>Where calls and results go; Venue = say in a private room, party/alliance in public.</summary>
@@ -31,13 +34,20 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>On by default: a gleam round whoever is up, a ripple from each roll and a light passing the turn on. Off: still marks.</summary>
     public bool WorldMarkersMotion { get; set; } = true;
 
+    /// <summary>How opaque the pillars of light are, in percent of the original look (100 = the original brightness). 0 hides them.</summary>
+    public int BeamOpacity { get; set; } = 40;
+
     /// <summary>Off by default: frosted glass behind the window (Dalamud's blur, tinted night blue; the window turns slightly see-through).</summary>
     public bool FrostedWindow { get; set; }
 
     /// <summary>Off by default: a timed nudge to whoever has not rolled yet.</summary>
     public bool ReminderEnabled { get; set; }
     public int ReminderSeconds { get; set; } = 30;
-    public TextChannel ReminderChannel { get; set; } = TextChannel.Say; // Say or Party only
+    /// <summary>Version 1's reminder channel, read only to migrate a saved config; ReminderCallChannel replaced it.</summary>
+    public TextChannel ReminderChannel { get; set; } = TextChannel.Say;
+
+    /// <summary>Where a wait's first reminder goes; Venue = the venue's default, like the calls. The rest of that wait goes to Echo.</summary>
+    public CallChannel ReminderCallChannel { get; set; } = CallChannel.Venue;
 
     /// <summary>Off by default. On: the reminder prints to your own Echo and nothing is sent.</summary>
     public bool ReminderOnlyMe { get; set; }
@@ -59,7 +69,14 @@ public sealed class Configuration : IPluginConfiguration
         if (!Enum.IsDefined(Venue)) Venue = Venue.Private;
         if (!Enum.IsDefined(TextChannel)) TextChannel = TextChannel.Say;
         if (!Enum.IsDefined(CallChannel)) CallChannel = CallChannel.Venue;
-        if (ReminderChannel is not (TextChannel.Say or TextChannel.Party)) ReminderChannel = TextChannel.Say;
+        if (Version < 2)
+        {
+            ReminderCallChannel = Lines.ReminderChannelFromV1(ReminderChannel); // the old numbers mean other channels in CallChannel
+            Version = 2;
+        }
+
+        if (!Enum.IsDefined(ReminderCallChannel)) ReminderCallChannel = CallChannel.Venue;
+        BeamOpacity = Math.Clamp(BeamOpacity, 0, 100);
         ReminderSeconds = Math.Clamp(ReminderSeconds, MinReminderSeconds, 120);
         SendMinSeconds = Math.Clamp(SendMinSeconds, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000);
         SendMaxSeconds = Math.Clamp(SendMaxSeconds, SendMinSeconds, Outbox.MaxGapMs / 1000);

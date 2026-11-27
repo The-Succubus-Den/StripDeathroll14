@@ -942,4 +942,99 @@ public class GameTests
             Assert.Equal(RollOutcome.Next, g.OnRoll(g.Current, v, g.Limit));
         }
     }
+
+    // Alice forgets: her first reminder goes to the channel, the rest of her wait to Echo; Bob's turn starts with the channel again.
+    [Fact]
+    public void FirstReminderOfAWaitGoesToChatTheRestToEcho()
+    {
+        var clock = new ReminderClock();
+        Assert.False(clock.Due("alice", 0, 30_000));
+        Assert.True(clock.NextGoesToChat);
+        Assert.True(clock.Due("alice", 30_000, 30_000));
+        Assert.True(clock.LastWentToChat);                     // first: the reminder channel
+        Assert.False(clock.NextGoesToChat);
+        Assert.True(clock.Due("alice", 60_000, 30_000));
+        Assert.False(clock.LastWentToChat);                    // second: Echo
+        Assert.True(clock.Due("alice", 90_000, 30_000));
+        Assert.False(clock.LastWentToChat);                    // third: Echo
+        Assert.False(clock.Due("bob", 95_000, 30_000));        // Alice rolled, Bob is up
+        Assert.True(clock.NextGoesToChat);
+        Assert.True(clock.Due("bob", 125_000, 30_000));
+        Assert.True(clock.LastWentToChat);                     // Bob's first goes to the channel again
+        Assert.True(clock.Due("bob", 155_000, 30_000));
+        Assert.False(clock.LastWentToChat);
+        Assert.False(clock.Due("alice", 160_000, 30_000));     // Alice's next turn: back to the channel first
+        Assert.True(clock.Due("alice", 190_000, 30_000));
+        Assert.True(clock.LastWentToChat);
+    }
+
+    [Fact]
+    public void TurnIdHoldsThroughAWrongRollAndMovesWithTheTurn()
+    {
+        var g = Opened(out _);                                 // Ann up, fresh /random
+        var id = g.TurnId;
+        Assert.Equal(RollOutcome.WrongMax, g.OnRoll(P(g, "Ann Lee"), 5, 10));
+        Assert.Equal(id, g.TurnId);                            // a wrong roll: same turn, so the reroll call is not repeated
+        Assert.Equal(RollOutcome.WrongMax, g.OnRoll(P(g, "Ann Lee"), 7, 20));
+        Assert.Equal(id, g.TurnId);
+        Assert.Equal(RollOutcome.Next, g.OnRoll(P(g, "Ann Lee"), 400, null));
+        Assert.NotEqual(id, g.TurnId);                         // Bo is up: a new turn
+        var bo = g.TurnId;
+        g.NewGame();
+        Assert.NotEqual(bo, g.TurnId);
+    }
+
+    [Fact]
+    public void WrongRollLineNamesTheRightRoll()
+    {
+        Assert.Equal("Ann Lee, that was out of 999 - please roll /random 532", Lines.WrongRoll("Ann Lee", 57, 999, "/random 532"));
+        var m = new Messages { WrongRoll = "{name}: {number}/{max} is wrong, {roll}" };
+        Assert.Equal("Ann Lee: 57/999 is wrong, /dice party 532", Lines.WrongRoll("Ann Lee", 57, 999, "/dice party 532", m));
+        Assert.True(Lines.IsSendable(Lines.WrongRoll("Ann Lee", 57, 999, "/random 532")));
+        Assert.False(Lines.IsSendable(Lines.WrongRoll("Ann Lee", 57, 999, "/random 532", new Messages { WrongRoll = "{roll} now" })));
+    }
+
+    [Fact]
+    public void OldReminderChannelMigratesByMeaningNotNumber()
+    {
+        Assert.Equal(CallChannel.Say, Lines.ReminderChannelFromV1(TextChannel.Say));
+        Assert.Equal(CallChannel.Party, Lines.ReminderChannelFromV1(TextChannel.Party)); // old Party = 2 must not become CallChannel 2 (Yell)
+        Assert.Equal(CallChannel.Yell, Lines.ReminderChannelFromV1(TextChannel.Yell));
+        Assert.Equal(2, (int)CallChannel.Yell);
+        Assert.Equal(2, (int)TextChannel.Party);
+    }
+
+    [Fact]
+    public void TallyRunsOverEveryGameAndSurvivesNewGame()
+    {
+        var g = Opened(out _);                                 // Ann Lee and Bo Ray, Ann up
+        for (var round = 0; round < 3; round++)                // Ann wins three rounds, Bo strips each time
+        {
+            if (g.Current!.Name != "Ann Lee") g.OnRoll(g.Current, 5, g.Limit);
+            Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Ann Lee"), 1, g.Limit));
+            Assert.True(g.Pick(P(g, "Bo Ray")));
+        }
+        Assert.Equal(Phase.GameOver, g.Phase);
+        Assert.Equal("Ann Lee", g.Champion);
+        g.NewGame();                                           // game 1 filed with its champion
+        Assert.Equal("Ann Lee", g.PastGames[0].Champion);
+        g.StartRound();
+        g.OnRoll(P(g, "Ann Lee"), 10, null);
+        g.OnRoll(P(g, "Bo Ray"), 900, null);                   // Bo starts
+        Assert.Equal(RollOutcome.Won, g.OnRoll(P(g, "Bo Ray"), 0, null));
+        Assert.True(g.Pick(P(g, "Ann Lee")));
+        Assert.Null(g.Champion);                               // game 2 still in play
+
+        var rows = Tally.Build(g.AllGames);
+        var ann = rows.Single(r => r.Player == "Ann Lee");
+        var bo = rows.Single(r => r.Player == "Bo Ray");
+        Assert.Equal((2, 1, 3, 1, 0), (ann.Games, ann.GamesWon, ann.RoundsWon, ann.PiecesLost, ann.TimesOut));
+        Assert.Equal((2, 0, 1, 3, 1), (bo.Games, bo.GamesWon, bo.RoundsWon, bo.PiecesLost, bo.TimesOut));
+        Assert.Equal("Ann Lee", rows[0].Player);              // most games won first
+
+        g.NewGame();
+        Assert.Equal(2, Tally.Build(g.AllGames).Single(r => r.Player == "Ann Lee").Games); // New game keeps the tally
+        g.ClearHistory();
+        Assert.Empty(Tally.Build(g.AllGames));                 // only Clear history empties it
+    }
 }

@@ -79,8 +79,11 @@ public sealed class Player
 
 public sealed record RoundRecord(int Round, string Winner, int WinningRoll, string Target, Piece Piece, int TargetLivesLeft);
 
-/// <summary>One game's results and rolls: a finished game kept by New game, or a snapshot of the game in play.</summary>
-public sealed record GameRecord(int Number, IReadOnlyList<RoundRecord> History, IReadOnlyList<RollRecord> RollLog);
+/// <summary>
+/// One game's results and rolls: a finished game kept by New game, or a snapshot of the game in play.
+/// Champion: the last one standing, null while the game is unfinished or when it was abandoned.
+/// </summary>
+public sealed record GameRecord(int Number, IReadOnlyList<RoundRecord> History, IReadOnlyList<RollRecord> RollLog, string? Champion = null);
 
 /// <summary>Accepted: the host took this wrong-number roll, so a replay after an edit takes it again.</summary>
 public sealed record RollRecord(int Round, string Player, int Value, int? Max, RollNote Note, bool Accepted = false);
@@ -115,7 +118,15 @@ public sealed class DeathrollGame
 
     /// <summary>Every game with something in it, oldest first: the past games, then the game in play.</summary>
     public IEnumerable<GameRecord> AllGames =>
-        History.Count == 0 && RollLog.Count == 0 ? PastGames : PastGames.Append(new GameRecord(GameNumber, History.ToList(), RollLog.ToList()));
+        History.Count == 0 && RollLog.Count == 0 ? PastGames : PastGames.Append(Snapshot());
+
+    private GameRecord Snapshot() => new(GameNumber, History.ToList(), RollLog.ToList(), Champion);
+
+    /// <summary>The last one standing once the game is over; null before.</summary>
+    public string? Champion => Phase == Phase.GameOver ? Active.FirstOrDefault()?.Name : null;
+
+    /// <summary>Changes whenever the turn moves (or the round or game changes); a wrong roll leaves it as it is.</summary>
+    public string TurnId => $"{GameNumber}/{Round}/{turnSerial}";
 
     /// <summary>No round in play, so the current game's lines can go too (a round in play needs its rolls to be edited).</summary>
     public bool CanClearCurrentHistory => Phase is Phase.Setup or Phase.GameOver;
@@ -284,7 +295,7 @@ public sealed class DeathrollGame
     {
         if (History.Count > 0 || RollLog.Count > 0)
         {
-            PastGames.Add(new GameRecord(GameNumber, History.ToList(), RollLog.ToList()));
+            PastGames.Add(Snapshot());
             GameNumber++;
         }
 
@@ -468,6 +479,15 @@ public sealed class ReminderClock
     public int Sent { get; private set; }
     public bool Paused => pausedLeft is not null;
 
+    /// <summary>
+    /// Only the first reminder of a wait goes to chat; the rest of that wait goes to the host's Echo. A new wait (the
+    /// next player up, or the next opening roll in) starts with a chat reminder again.
+    /// </summary>
+    public bool NextGoesToChat => Sent == 0;
+
+    /// <summary>True right after Due fired the first reminder of this wait.</summary>
+    public bool LastWentToChat => Sent == 1;
+
     public void Pause(long now) => pausedLeft ??= Math.Max(0, dueAt - now);
 
     public void Resume(long now)
@@ -579,6 +599,7 @@ public sealed class Messages
     public string GameOver { get; set; } = "{name} is the last one standing and wins Strip Deathroll!";
     public string ReminderTurn { get; set; } = "Reminder: {name}, it's your turn - roll {roll}";
     public string ReminderOpening { get; set; } = "Still waiting on {names}: roll {roll} to start the round.";
+    public string WrongRoll { get; set; } = "{name}, that was out of {max} - please roll {roll}";
 }
 
 /// <summary>Every line the plugin posts, and the command prefixes it posts them with.</summary>
@@ -661,6 +682,18 @@ public static class Lines
 
     public static string GameOver(string name, Messages? m = null) => Fill(m?.GameOver, D.GameOver, ("name", name));
 
+    /// <summary>Posted once per turn when the player up rolls the wrong number: what they rolled to, and the right roll.</summary>
+    public static string WrongRoll(string name, int value, int max, string cmd, Messages? m = null) =>
+        Fill(m?.WrongRoll, D.WrongRoll, ("name", name), ("number", value), ("max", max), ("roll", cmd));
+
+    /// <summary>The reminder channel saved before version 2 (Say or Party) as a call channel.</summary>
+    public static CallChannel ReminderChannelFromV1(TextChannel old) => old switch
+    {
+        TextChannel.Party => CallChannel.Party,
+        TextChannel.Yell => CallChannel.Yell,
+        _ => CallChannel.Say,
+    };
+
     /// <summary>A line is safe to send only as one short line that is not a command of its own.</summary>
     public static bool IsSendable(string line) =>
         line.Length > 0 && System.Text.Encoding.UTF8.GetByteCount(line) <= 400 && !line.StartsWith('/') && !line.Any(char.IsControl);
@@ -728,6 +761,39 @@ public sealed class TurnCues
         (Player, Player)? handover = current is { } a && g.Current is { } b && a != b ? (a, b) : null;
         current = g.Current;
         return (fresh, handover);
+    }
+}
+
+/// <summary>One player's totals over every game in the history.</summary>
+public sealed record TallyRow(string Player, int Games, int GamesWon, int RoundsWon, int PiecesLost, int TimesOut);
+
+/// <summary>The running tally over all games in the history: games played and won, rounds won, pieces lost, times out.</summary>
+public static class Tally
+{
+    public static List<TallyRow> Build(IEnumerable<GameRecord> games)
+    {
+        var rows = new Dictionary<string, (int Games, int GamesWon, int Rounds, int Lost, int Out)>();
+        foreach (var g in games)
+        {
+            var names = g.RollLog.Select(r => r.Player).Concat(g.History.SelectMany(h => new[] { h.Winner, h.Target })).Distinct();
+            foreach (var n in names)
+            {
+                var r = rows.GetValueOrDefault(n);
+                rows[n] = r with { Games = r.Games + 1, GamesWon = r.GamesWon + (g.Champion == n ? 1 : 0) };
+            }
+
+            foreach (var h in g.History)
+            {
+                var w = rows[h.Winner];
+                rows[h.Winner] = w with { Rounds = w.Rounds + 1 };
+                var t = rows[h.Target];
+                rows[h.Target] = t with { Lost = t.Lost + 1, Out = t.Out + (h.TargetLivesLeft <= 0 ? 1 : 0) };
+            }
+        }
+
+        return rows.Select(kv => new TallyRow(kv.Key, kv.Value.Games, kv.Value.GamesWon, kv.Value.Rounds, kv.Value.Lost, kv.Value.Out))
+            .OrderByDescending(r => r.GamesWon).ThenByDescending(r => r.RoundsWon).ThenBy(r => r.PiecesLost).ThenBy(r => r.Player, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }
 

@@ -48,6 +48,8 @@ public sealed class Plugin : IDalamudPlugin
     private const int RollRepeatMs = 10_000;
     private (int, Phase, int?) lastRollKey;
     private long lastRollAt;
+    private string? wrongRollCalledFor; // turn + player whose wrong roll already got its reroll call: one per turn (per player in the opening)
+    private bool alertIsPending;        // LastAlert is about the wrong roll waiting for Accept; it goes once that is settled
 
     public Configuration Config { get; }
     public DeathrollGame Game { get; } = new();
@@ -59,6 +61,11 @@ public sealed class Plugin : IDalamudPlugin
     public int Queued => outbox.Count;
     public int RemindersSent => reminder.Sent;
     public int? ReminderSecondsLeft => reminder.SecondsLeft(Environment.TickCount64);
+
+    /// <summary>Where the next reminder goes: the reminder channel for a wait's first, Echo after that (or always, with Only remind me).</summary>
+    public string NextReminderTo => Config.ReminderOnlyMe || !reminder.NextGoesToChat ? "Echo" : ReminderPrefix;
+
+    public string ReminderPrefix => Lines.CallPrefix(Config.ReminderCallChannel, Config.Venue, InAlliance);
 
     /// <summary>Session only: holds the reminder clock (and its countdown) until resumed.</summary>
     public bool ReminderPaused
@@ -147,7 +154,7 @@ public sealed class Plugin : IDalamudPlugin
     public void StartRound()
     {
         if (!Game.CanStartRound) return;
-        LastAlert = null; // an alert about the round before (or the one being restarted) is stale now
+        ClearAlert(); // an alert about the round before (or the one being restarted) is stale now
         Game.StartRound();
         if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null), Config.Messages));
     }
@@ -156,7 +163,8 @@ public sealed class Plugin : IDalamudPlugin
     public void NewGame()
     {
         Game.NewGame();
-        LastAlert = null;
+        ClearAlert();
+        wrongRollCalledFor = null;
         Proposed.Clear();
         lastRollKey = default;
         lastRollAt = 0;
@@ -167,7 +175,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         Game.ClearPlayers();
         spots.Clear();
-        LastAlert = null;
+        ClearAlert();
         Proposed.Clear();
     }
 
@@ -190,7 +198,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         var before = (Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll);
         if (!edit()) return false;
-        LastAlert = null;
+        ClearAlert();
         if ((Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll) == before) return true;
         if (Game.Phase == Phase.Pick && Game.Winner is { } w) Propose(Lines.Won(w.Name, Game.WinningRoll, Game.Round, m: Config.Messages));
         else if (Game.Phase == Phase.Turns && Game.Pending is null) CallCurrent();
@@ -203,6 +211,7 @@ public sealed class Plugin : IDalamudPlugin
         var w = Game.Winner;
         var (roll, round) = (Game.WinningRoll, Game.Round);
         if (!Game.Pick(target, piece)) return;
+        ClearAlert(); // the next round (or the game over) starts clean
 
         // One event, one batch: the win (if not posted yet), who lost what, then the game-over line or the next call.
         var m = Config.Messages;
@@ -214,7 +223,11 @@ public sealed class Plugin : IDalamudPlugin
         Propose([.. lines]);
     }
 
-    public void AcceptPending() => Handle(Game.AcceptPending());
+    public void AcceptPending()
+    {
+        Handle(Game.AcceptPending());
+        ClearSettledAlert();
+    }
 
     public void CallCurrent()
     {
@@ -324,9 +337,22 @@ public sealed class Plugin : IDalamudPlugin
         else if (!outbox.Add(prefix, line, true)) Alert($"Not sent (already waiting, or {Outbox.MaxWaiting} lines queued): {line}");
     }
 
-    private void Alert(string text)
+    private void ClearAlert()
+    {
+        LastAlert = null;
+        alertIsPending = false;
+    }
+
+    /// <summary>The wrong-roll alert names Accept, which is gone once the roll is accepted or rerolled right.</summary>
+    private void ClearSettledAlert()
+    {
+        if (alertIsPending && Game.Pending is null) ClearAlert();
+    }
+
+    private void Alert(string text, bool aboutPending = false)
     {
         LastAlert = text;
+        alertIsPending = aboutPending;
         chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {text}" });
     }
 
@@ -360,7 +386,9 @@ public sealed class Plugin : IDalamudPlugin
         switch (outcome)
         {
             case RollOutcome.OpeningWrongMax:
-                Alert($"{player!.Name} rolled out of {shownMax}: the opening roll is a plain {RollCommand(null)}. Not counted.");
+                var firstOpening = CallWrongRollOnce(player!, value, max, null);
+                Alert($"{player!.Name} rolled out of {shownMax}: the opening roll is a plain {RollCommand(null)}. Not counted." +
+                      (firstOpening ? " Called them to reroll." : ""));
                 break;
             case RollOutcome.AlreadyRolled:
                 Alert($"{player!.Name} rolled again during the opening. Ignored.");
@@ -369,12 +397,28 @@ public sealed class Plugin : IDalamudPlugin
                 Alert($"{player!.Name} rolled out of turn ({Game.Current?.Name} is up). Ignored.");
                 break;
             case RollOutcome.WrongMax:
-                Alert($"{player!.Name} rolled {value} out of {shownMax}, expected {RollCommand(Game.Limit)}. Accept it or ask for a reroll.");
+                var first = CallWrongRollOnce(player!, value, max, Game.Limit);
+                Alert($"{player!.Name} rolled {value} out of {shownMax}, expected {RollCommand(Game.Limit)}. " +
+                      (first ? "Called them to reroll; Accept counts it anyway." : "Already called to reroll this turn; Accept counts it anyway."), aboutPending: true);
                 break;
             default:
                 Handle(outcome);
+                ClearSettledAlert();
                 break;
         }
+    }
+
+    /// <summary>
+    /// Calls the player to reroll, naming the right roll, the first time they roll the wrong number in a turn (in the
+    /// opening: in the round). A second wrong roll in the same turn only alerts, so a muddle never spams chat.
+    /// </summary>
+    private bool CallWrongRollOnce(Player p, int value, int? max, int? limit)
+    {
+        var key = $"{Game.TurnId}/{p.Name}";
+        if (wrongRollCalledFor == key) return false;
+        wrongRollCalledFor = key;
+        Propose(Lines.WrongRoll(p.Name, value, max ?? DeathrollGame.OpeningMax, RollCommand(limit), Config.Messages));
+        return true;
     }
 
     private void Handle(RollOutcome outcome)
@@ -400,8 +444,9 @@ public sealed class Plugin : IDalamudPlugin
         if (names.Count == 0) return;
         var opening = Game.Phase == Phase.Opening;
         var line = Lines.Reminder(names, RollCommand(opening ? null : Game.Limit), opening, Config.Messages);
-        if (Config.ReminderOnlyMe) chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {line}" });
-        else Enqueue(Lines.TextPrefix(Config.ReminderChannel), line);
+        // A wait's first reminder goes to the reminder channel; the same player's further ones go to the host's Echo only.
+        if (Config.ReminderOnlyMe || !reminder.LastWentToChat) chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {line}" });
+        else Enqueue(ReminderPrefix, line);
     }
 
     private static string? PlayerName(SeString s) => s.Payloads.OfType<PlayerPayload>().FirstOrDefault()?.PlayerName;
@@ -433,7 +478,7 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
         overlay.UseGpu = Config.WorldMarkersGpu;
-        overlay.Draw(s => markers.Build(s, Game, seen, Environment.TickCount64 / 1000.0, Config.WorldMarkersMotion && !ReduceMotion));
+        overlay.Draw(s => markers.Build(s, Game, seen, Environment.TickCount64 / 1000.0, Config.WorldMarkersMotion && !ReduceMotion, Config.BeamOpacity / 100f));
         if (MovingRings && window.IsOpen) DrawRingHandles();
     }
 

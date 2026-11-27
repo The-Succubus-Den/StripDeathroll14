@@ -17,12 +17,15 @@ internal sealed class WorldMarkers
 
     // Always the dark scheme: these are drawn over the game world, not over the user's window theme.
     private static readonly MaterialScheme Scheme = MaterialKos.Scheme(KosAccent.KosMos, light: false)!;
+    private float beamScale = 1f; // set by each Build from the Beam opacity setting
 
     /// <param name="now">Seconds on any steady clock.</param>
     /// <param name="motion">Off: no gleam, ripples or hand-over pulse (the cues are still taken, so nothing replays when it comes back on).</param>
-    public void Build(KosShapes s, DeathrollGame game, IReadOnlyList<(Player Player, Vector3 At)> seen, double now, bool motion)
+    /// <param name="beam">The pillars' opacity, 0 to 1 of the original look; 0 draws no pillars.</param>
+    public void Build(KosShapes s, DeathrollGame game, IReadOnlyList<(Player Player, Vector3 At)> seen, double now, bool motion, float beam)
     {
         var m = Scheme;
+        beamScale = Math.Clamp(beam, 0f, 1f);
         Motion(s, game, seen, now, motion);
         foreach (var (p, at) in seen)
         {
@@ -102,10 +105,11 @@ internal sealed class WorldMarkers
         if (a is { } from && b is { } to) s.Pulse(from + Lift, to + Lift, t, m.Primary with { W = 0.95f }, lift: 1.5f);
     }
 
-    /// <summary>A pillar of light over the ring: a soft wide glow round a brighter core.</summary>
-    private static void Beacon(KosShapes s, Vector3 at, Vector4 c, float height)
+    /// <summary>A pillar of light over the ring: a soft wide glow round a brighter core, both scaled by the Beam opacity setting.</summary>
+    private void Beacon(KosShapes s, Vector3 at, Vector4 c, float height)
     {
-        s.Pillar(at, Inner, height, c with { W = 0.16f });
-        s.Pillar(at, 0.22f, height, c with { W = 0.4f });
+        if (beamScale <= 0) return;
+        s.Pillar(at, Inner, height, c with { W = 0.16f * beamScale });
+        s.Pillar(at, 0.22f, height, c with { W = 0.4f * beamScale });
     }
 }
