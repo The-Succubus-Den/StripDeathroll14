@@ -96,7 +96,7 @@ public sealed record RoundRecord(int Round, string Winner, int WinningRoll, stri
 /// </summary>
 public sealed record GameRecord(int Number, IReadOnlyList<RoundRecord> History, IReadOnlyList<RollRecord> RollLog, string? Champion = null);
 
-/// <summary>Accepted: the host took this wrong-number roll, so a replay after an edit takes it again.</summary>
+/// <summary>Accepted: the host took this wrong-number roll (a replay after an edit takes it again at the same point).</summary>
 public sealed record RollRecord(int Round, string Player, int Value, int? Max, RollNote Note, bool Accepted = false);
 
 public readonly record struct PendingRoll(Player Player, int Value, int? Max, int LogIndex);
@@ -117,6 +117,34 @@ public sealed class DeathrollGame
     private int turnSerial;
     private Player? roundStarter; // who starts the current round's turns without opening rolls; null = the round opens with rolls
 
+    // What else happened in the round in play besides its rolls, so a replay after an edit re-runs the round as it went:
+    // the seating it started with, then each accept and seat change at the point it was made (after RollsIn of its rolls).
+    private enum RoundEventKind { Accept, Add, Remove, MoveTo }
+    private sealed record RoundEvent(int RollsIn, RoundEventKind Kind, Player Player, int Index = 0);
+    private readonly List<RoundEvent> roundEvents = [];
+    private Player[] roundSeating = [];
+    private Player? roundStarterAtStart;
+    private bool replaying;
+
+    /// <summary>A round is in play: its rolls can still be edited, so what changes in it is noted for the replay.</summary>
+    private bool RoundInPlay => Round > 0 && Phase is Phase.Opening or Phase.Turns or Phase.Pick;
+
+    /// <summary>How many rolls of the round in play are logged so far (during a replay: re-run so far).</summary>
+    private int RollsIn => RollLog.Count - RoundStart;
+
+    private void Note(RoundEventKind kind, Player p, int index = 0)
+    {
+        if (RoundInPlay && !replaying) roundEvents.Add(new RoundEvent(RollsIn, kind, p, index));
+    }
+
+    /// <summary>A fresh round (not a replay): remember how it starts, and forget the last round's seat changes.</summary>
+    private void FreshRound()
+    {
+        roundEvents.Clear();
+        roundSeating = [.. Players];
+        roundStarterAtStart = roundStarter;
+    }
+
     public List<Player> Players { get; } = [];
     public List<RoundRecord> History { get; } = [];
     public List<RollRecord> RollLog { get; } = [];
@@ -133,8 +161,9 @@ public sealed class DeathrollGame
 
     private GameRecord Snapshot() => new(GameNumber, History.ToList(), RollLog.ToList(), Champion);
 
-    /// <summary>The last one standing once the game is over; null before.</summary>
-    public string? Champion => Phase == Phase.GameOver ? Active.FirstOrDefault()?.Name : null;
+    /// <summary>The last one standing once the game is over; null before. Kept by name, so a player listed or moved afterwards changes nothing.</summary>
+    public string? Champion => Phase == Phase.GameOver ? champion : null;
+    private string? champion;
 
     /// <summary>Changes whenever the turn moves (or the round or game changes); a wrong roll leaves it as it is.</summary>
     public string TurnId => $"{GameNumber}/{Round}/{turnSerial}";
@@ -210,7 +239,9 @@ public sealed class DeathrollGame
     {
         name = name.Trim();
         if (!Names.IsValid(name) || Players.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))) return false;
-        Players.Add(new Player { Name = name, IsDummy = dummy });
+        var p = new Player { Name = name, IsDummy = dummy };
+        Players.Add(p);
+        Note(RoundEventKind.Add, p);
         return true;
     }
 
@@ -225,6 +256,7 @@ public sealed class DeathrollGame
     public void ClearPlayers()
     {
         Players.Clear();
+        roundEvents.Clear();
         Current = Winner = Starter = roundStarter = null;
         Pending = null;
         Limit = null;
@@ -234,6 +266,8 @@ public sealed class DeathrollGame
 
     public void Remove(Player p)
     {
+        if (!Players.Contains(p)) return;
+        Note(RoundEventKind.Remove, p);
         if (roundStarter == p) roundStarter = Players.Count > 1 ? NextActive(p) : null; // a replay after an edit still has a starter
         if (Current == p) Current = Players.Count > 1 ? NextActive(p) : null;
         if (Starter == p) Starter = null;
@@ -242,7 +276,7 @@ public sealed class DeathrollGame
         Players.Remove(p);
         turnSerial++;
         if (Phase == Phase.Opening && Active.Any() && Active.All(x => x.Opening is not null)) SetOrder();
-        if (Phase is Phase.Opening or Phase.Turns or Phase.Pick && Active.Count() < 2) { Phase = Phase.Setup; Current = null; }
+        if (Phase is Phase.Opening or Phase.Turns or Phase.Pick && Active.Count() < 2) { Phase = Phase.Setup; Current = Winner = null; Pending = null; } // the round stops
     }
 
     public void Move(Player p, int delta)
@@ -250,14 +284,17 @@ public sealed class DeathrollGame
         var i = Players.IndexOf(p);
         var j = i + delta;
         if (i < 0 || j < 0 || j >= Players.Count) return;
-        (Players[i], Players[j]) = (Players[j], Players[i]);
+        (Players[i], Players[j]) = (Players[j], Players[i]); // the same as moving p to seat j
+        Note(RoundEventKind.MoveTo, p, j);
     }
 
     /// <summary>Moves p to seat index (the others shift up or down one), for dragging a seat around the circle.</summary>
     public void MoveTo(Player p, int index)
     {
         if (!Players.Remove(p)) return;
-        Players.Insert(Math.Clamp(index, 0, Players.Count), p);
+        index = Math.Clamp(index, 0, Players.Count);
+        Players.Insert(index, p);
+        Note(RoundEventKind.MoveTo, p, index);
     }
 
     public bool CanStartRound => Phase is Phase.Setup or Phase.Opening or Phase.Turns && Active.Count() >= 2;
@@ -273,6 +310,7 @@ public sealed class DeathrollGame
         if (Round > 0 && History.All(h => h.Round != Round)) RollLog.RemoveAll(r => r.Round == Round);
         else Round++;
         roundStarter = Round > 1 ? StarterAfterLastWinner() ?? roundStarter : null; // winner gone: Remove already moved roundStarter on
+        FreshRound(); // a new (or restarted) round: everyone listed now plays it from its start
         BeginRound();
     }
 
@@ -320,6 +358,7 @@ public sealed class DeathrollGame
 
         History.Clear();
         RollLog.Clear();
+        roundEvents.Clear();
         Round = 0;
         Phase = Phase.Setup;
         Current = Winner = Starter = roundStarter = null;
@@ -352,28 +391,65 @@ public sealed class DeathrollGame
     public bool DeleteRoll(int index)
     {
         if (!IsEditable(index)) return false;
+        var at = index - RoundStart;
         RollLog.RemoveAt(index);
+        for (var i = 0; i < roundEvents.Count; i++) // what happened after the deleted roll came in now has one roll fewer before it
+            if (roundEvents[i].RollsIn > at) roundEvents[i] = roundEvents[i] with { RollsIn = roundEvents[i].RollsIn - 1 };
         Replay();
         return true;
     }
 
+    /// <summary>Where the round in play starts in the roll log: its rolls are always the last ones.</summary>
+    private int RoundStart => RollLog.FindLastIndex(r => r.Round != Round) + 1;
+
     /// <summary>
-    /// Re-runs the round in play from its start over its logged rolls, in order: every roll is judged again (the host's
-    /// accepts included), so the turn, the limit and a win follow an edit. Each roll keeps one log line; a roll that
-    /// no longer counts (after the win, or its player left) stays, marked Void, so a second edit can bring it back.
+    /// Re-runs the round in play from its start over its logged rolls, in order: every roll is judged again, and the
+    /// host's accepts and seat changes (players added, removed or moved) are made again at the point they were made,
+    /// after the same rolls, with the seating the round started with. So the turn, the limit and a win follow an edit,
+    /// and an edit that changes nothing changes nothing. Each roll keeps one log line; a roll that no longer counts
+    /// (after the win, or out of turn now) stays, marked as such, so a second edit can bring it back.
     /// </summary>
     private void Replay()
     {
-        var inputs = RollLog.Where(r => r.Round == Round).ToList();
-        RollLog.RemoveAll(r => r.Round == Round);
-        BeginRound();
-        foreach (var r in inputs)
+        var first = RoundStart;
+        var inputs = RollLog.Skip(first).ToList();
+        RollLog.RemoveRange(first, inputs.Count);
+        var events = roundEvents.ToList();
+        var seatsNow = Players.ToList();
+        replaying = true;
+        try
         {
-            var p = Players.FirstOrDefault(x => x.Name == r.Player);
-            var before = RollLog.Count;
-            var outcome = OnRoll(p, r.Value, r.Max);
-            if (RollLog.Count == before) RollLog.Add(r with { Note = RollNote.Void, Accepted = false });
-            else if (outcome == RollOutcome.WrongMax && r.Accepted) AcceptPending();
+            Players.Clear();
+            Players.AddRange(roundSeating);
+            roundStarter = roundStarterAtStart;
+            BeginRound();
+            var e = 0;
+            for (var k = 0; ; k++)
+            {
+                for (; e < events.Count && events[e].RollsIn <= k; e++) Redo(events[e]);
+                if (k == inputs.Count) break;
+                var r = inputs[k];
+                var before = RollLog.Count;
+                OnRoll(Players.FirstOrDefault(x => x.Name == r.Player), r.Value, r.Max);
+                if (RollLog.Count == before) RollLog.Add(r with { Note = RollNote.Void, Accepted = false });
+            }
+        }
+        finally
+        {
+            replaying = false;
+        }
+
+        if (!Players.SequenceEqual(seatsNow)) { Players.Clear(); Players.AddRange(seatsNow); } // never: the same changes in the same order
+    }
+
+    private void Redo(RoundEvent ev)
+    {
+        switch (ev.Kind)
+        {
+            case RoundEventKind.Accept when Pending?.Player == ev.Player: AcceptPending(); break;
+            case RoundEventKind.Add when !Players.Contains(ev.Player): ev.Player.Opening = null; Players.Add(ev.Player); break; // as new as when they joined
+            case RoundEventKind.Remove: Remove(ev.Player); break;
+            case RoundEventKind.MoveTo: MoveTo(ev.Player, ev.Index); break;
         }
     }
 
@@ -403,9 +479,11 @@ public sealed class DeathrollGame
         return Apply(value, Log(p, value, max, RollNote.Counted), RollNote.Counted);
     }
 
+    /// <summary>The host counts the waiting wrong-number roll (noted, so a replay accepts it again at the same point).</summary>
     public RollOutcome AcceptPending()
     {
         if (Pending is not { } pending || Phase != Phase.Turns || pending.Player != Current) return RollOutcome.Ignored;
+        Note(RoundEventKind.Accept, pending.Player);
         RollLog[pending.LogIndex] = RollLog[pending.LogIndex] with { Accepted = true };
         return Apply(pending.Value, pending.LogIndex, RollNote.Accepted);
     }
@@ -417,11 +495,17 @@ public sealed class DeathrollGame
         Winner.Wins++;
         target.Worn.Remove(piece);
         History.Add(new RoundRecord(Round, Winner.Name, WinningRoll, target.Name, piece, target.Lives));
-        if (Active.Count() <= 1) { Phase = Phase.GameOver; return true; }
+        if (Active.Count() <= 1)
+        {
+            champion = Active.FirstOrDefault()?.Name;
+            Phase = Phase.GameOver;
+            return true;
+        }
         // Round 2 on: no opening roll; the next player in the list after the winner starts with a fresh /random.
         // The piece is already off, so a player who just went out is skipped (NextActive ignores Out).
         roundStarter = NextActive(Winner);
         Round++;
+        FreshRound();
         BeginRound();
         return true;
     }
@@ -628,14 +712,13 @@ public static class Lines
     };
 
     /// <summary>
-    /// Which lines of one event Auto-post sends now and which wait for Post. Auto-post off: all wait. On: a line of a
-    /// held kind waits, and so does every line after it in the same event, so chat never gets them out of order.
+    /// Which lines of one event Auto-post sends now and which wait for Post, each in event order. Auto-post off: all
+    /// wait. On: only the lines of a held kind wait; the others go, so holding one kind never holds back another.
     /// </summary>
-    public static (List<string> Send, List<string> Hold) SplitAuto(bool autoPost, ICollection<CallKind> held, params (CallKind Kind, string Line)[] lines)
+    public static (List<string> Send, List<string> Hold) SplitAuto(bool autoPost, IReadOnlyCollection<CallKind> held, params (CallKind Kind, string Line)[] lines)
     {
-        var cut = autoPost ? Array.FindIndex(lines, l => held.Contains(l.Kind)) : 0;
-        if (cut < 0) cut = lines.Length;
-        return (lines.Take(cut).Select(l => l.Line).ToList(), lines.Skip(cut).Select(l => l.Line).ToList());
+        bool Waits((CallKind Kind, string Line) l) => !autoPost || held.Contains(l.Kind);
+        return (lines.Where(l => !Waits(l)).Select(l => l.Line).ToList(), lines.Where(Waits).Select(l => l.Line).ToList());
     }
 
     /// <summary>What became of a roll, as the History tab and the CSV export word it.</summary>

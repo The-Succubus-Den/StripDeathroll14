@@ -492,7 +492,7 @@ public class GameTests
     }
 
     [Fact]
-    public void AutoPostHoldsChosenKindsAndWhatFollowsThem()
+    public void AutoPostHoldsOnlyTheChosenKinds()
     {
         (CallKind, string)[] pick = [(CallKind.Win, "win"), (CallKind.Strip, "strip"), (CallKind.Call, "call")];
         var (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind>(), pick);
@@ -501,9 +501,9 @@ public class GameTests
         (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind> { CallKind.Call }, pick);
         Assert.Equal(["win", "strip"], send);
         Assert.Equal(["call"], hold);
-        (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind> { CallKind.Strip }, pick); // the call after a held strip waits too
-        Assert.Equal(["win"], send);
-        Assert.Equal(["strip", "call"], hold);
+        (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind> { CallKind.Strip }, pick); // a held strip does not hold the call
+        Assert.Equal(["win", "call"], send);
+        Assert.Equal(["strip"], hold);
         (send, hold) = Lines.SplitAuto(false, new HashSet<CallKind>(), pick); // Auto-post off: everything waits
         Assert.Empty(send);
         Assert.Equal(["win", "strip", "call"], hold);

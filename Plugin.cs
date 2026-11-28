@@ -48,16 +48,17 @@ public sealed class Plugin : IDalamudPlugin
     private const int RollRepeatMs = 10_000;
     private (int, Phase, int?) lastRollKey;
     private long lastRollAt;
-    private string? wrongRollCalledFor; // turn + player whose wrong roll already got its reroll call: one per turn (per player in the opening)
-    private bool alertIsPending;        // LastAlert is about the wrong roll waiting for Accept; it goes once that is settled
 
     public Configuration Config { get; }
     public DeathrollGame Game { get; } = new();
 
-    /// <summary>Announcements waiting for the host's Post press (when auto-post is off).</summary>
-    public List<string> Proposed { get; } = [];
+    /// <summary>The call logic (what each event posts, Auto-post, the wrong-roll call, the alert); pure, so it is tested.</summary>
+    public GameHost Host { get; }
 
-    public string? LastAlert { get; private set; }
+    /// <summary>Lines waiting for the host's Post press: everything with Auto-post off, the held kinds with it on.</summary>
+    public List<string> Proposed => Host.Proposed;
+
+    public string? LastAlert => Host.LastAlert;
     public int Queued => outbox.Count;
     public int RemindersSent => reminder.Sent;
     public int? ReminderSecondsLeft => reminder.SecondsLeft(Environment.TickCount64);
@@ -104,6 +105,10 @@ public sealed class Plugin : IDalamudPlugin
 
         Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Config.Normalize();
+        Host = new GameHost(Game,
+            () => new HostSettings(Config.AutoPost, Config.HeldFromAutoPost, Config.Messages, Config.Venue, Config.CallChannel, InAlliance),
+            Enqueue,
+            text => chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {text}" }));
 
         KosLib.Kos.Mono = pluginInterface.UiBuilder.MonoFontHandle; // section tags; Dalamud owns the handle
         window = new MainWindow(this);
@@ -151,21 +156,12 @@ public sealed class Plugin : IDalamudPlugin
 
     // ---- host actions (all from button presses) ----
 
-    public void StartRound()
-    {
-        if (!Game.CanStartRound) return;
-        ClearAlert(); // an alert about the round before (or the one being restarted) is stale now
-        Game.StartRound();
-        if (Game.Phase == Phase.Opening) Propose((CallKind.RoundStart, Lines.Opening(Game.Round, RollCommand(null), Config.Messages)));
-    }
+    public void StartRound() => Host.StartRound();
 
     /// <summary>A clean slate: the game reset, plus the window's leftovers from the last one (alert, unposted lines, roll guard).</summary>
     public void NewGame()
     {
-        Game.NewGame();
-        ClearAlert();
-        wrongRollCalledFor = null;
-        Proposed.Clear();
+        Host.NewGame();
         lastRollKey = default;
         lastRollAt = 0;
     }
@@ -173,80 +169,24 @@ public sealed class Plugin : IDalamudPlugin
     /// <summary>Empties the player list (and their hand-placed rings); the round in play stops.</summary>
     public void ClearPlayers()
     {
-        Game.ClearPlayers();
+        Host.ClearPlayers();
         spots.Clear();
-        ClearAlert();
-        Proposed.Clear();
     }
 
-    /// <summary>The host fixes a roll of the round in play; a call or win line is proposed if the turn moved because of it.</summary>
-    public bool EditRoll(int index, int value, int? max) => AfterEdit(() => Game.EditRoll(index, value, max));
-
-    public bool DeleteRoll(int index) => AfterEdit(() => Game.DeleteRoll(index));
-
-    /// <summary>A roll the plugin missed, entered by the host: judged exactly as if it had just come from chat.</summary>
-    public string AddRoll(Player p, int value, int? max)
+    /// <summary>Takes a player off the list (and their placed ring); the call follows if the game moved.</summary>
+    public void RemovePlayer(Player p)
     {
-        if (!Game.CanEditRolls || !Game.Players.Contains(p)) return "Rolls can be added once a round has started.";
-        if (!DeathrollGame.IsPossible(value, max)) return "Not a possible roll: 0 up to the number rolled to (at least 2).";
-        var count = Game.RollLog.Count;
-        Receive(p, value, max);
-        return Game.RollLog.Count > count ? $"Added {p.Name}'s {value}." : $"Not added: {p.Name} cannot roll now (out, or the round is already won).";
+        Host.RemovePlayer(p);
+        spots.Remove(p);
     }
 
-    private bool AfterEdit(Func<bool> edit)
-    {
-        var before = (Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll);
-        if (!edit()) return false;
-        ClearAlert();
-        if ((Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll) == before) return true;
-        if (Game.Phase == Phase.Pick && Game.Winner is { } w) Propose((CallKind.Win, Lines.Won(w.Name, Game.WinningRoll, Game.Round, m: Config.Messages)));
-        else if (Game.Phase == Phase.Turns && Game.Pending is null) CallCurrent();
-        else Proposed.Clear(); // back in the opening, or a wrong number waits for the host: an older call is stale
-        return true;
-    }
-
-    public void Pick(Player target, Piece piece)
-    {
-        var w = Game.Winner;
-        var (roll, round) = (Game.WinningRoll, Game.Round);
-        if (!Game.Pick(target, piece)) return;
-        ClearAlert(); // the next round (or the game over) starts clean
-
-        // One event, one batch: the win (if not posted yet), who lost what, then the game-over line or the next call.
-        var m = Config.Messages;
-        var lines = new List<(CallKind, string)>();
-        if (w is not null && Proposed.Contains(Lines.Won(w.Name, roll, round, m: m))) lines.Add((CallKind.Win, Lines.Won(w.Name, roll, round, ask: false, m: m)));
-        lines.Add((CallKind.Strip, Lines.Stripped(target.Name, piece, target.Lives, m)));
-        if (Game.Phase == Phase.GameOver) lines.Add((CallKind.GameOver, Lines.GameOver(Game.Active.First().Name, m)));
-        else if (Game.Current is { } p) lines.Add((CallKind.Call, Lines.Call(p.Name, RollCommand(Game.Limit), m)));
-        Propose([.. lines]);
-    }
-
-    public void AcceptPending()
-    {
-        Handle(Game.AcceptPending());
-        ClearSettledAlert();
-    }
-
-    /// <summary>
-    /// The Ask for reroll button: sends the wrong roller their reroll call (naming the right roll) in the call channel
-    /// right away, whatever Auto-post says, because the host pressed it. Drops the same line from Proposed so it is not
-    /// posted twice, and counts as this turn's wrong-roll call.
-    /// </summary>
-    public void AskForReroll()
-    {
-        if (Game.Pending is not { } pending || Game.Phase != Phase.Turns || pending.Player != Game.Current) return;
-        var line = Lines.WrongRoll(pending.Player.Name, pending.Value, pending.Max ?? DeathrollGame.OpeningMax, RollCommand(Game.Limit), Config.Messages);
-        Proposed.Remove(line);
-        wrongRollCalledFor = $"{Game.TurnId}/{pending.Player.Name}";
-        Enqueue(CallPrefix, line);
-    }
-
-    public void CallCurrent()
-    {
-        if (Game.Current is { } p) Propose((CallKind.Call, Lines.Call(p.Name, RollCommand(Game.Limit), Config.Messages)));
-    }
+    public bool EditRoll(int index, int value, int? max) => Host.EditRoll(index, value, max);
+    public bool DeleteRoll(int index) => Host.DeleteRoll(index);
+    public string AddRoll(Player p, int value, int? max) => Host.AddRoll(p, value, max);
+    public void Pick(Player target, Piece piece) => Host.Pick(target, piece);
+    public void AcceptPending() => Host.AcceptPending();
+    public void AskForReroll() => Host.AskForReroll();
+    public void CallCurrent() => Host.CallCurrent();
 
     /// <summary>Your roll right now: a fresh /random for the opening or when you start the turns, else the previous roll; null when it is not your roll.</summary>
     public string? MyRoll => Game.Find(MyName) is { Out: false } me &&
@@ -266,11 +206,7 @@ public sealed class Plugin : IDalamudPlugin
         if (!outbox.Add(null, cmd, false)) Alert($"Not sent (already waiting, or too much queued): {cmd}");
     }
 
-    public void PostProposed()
-    {
-        foreach (var line in Proposed) Enqueue(CallPrefix, line);
-        Proposed.Clear();
-    }
+    public void PostProposed() => Host.PostProposed();
 
     public void PostText(string text)
     {
@@ -313,7 +249,7 @@ public sealed class Plugin : IDalamudPlugin
         int? max = Game.Phase == Phase.Opening ? null : Game.Limit;
         var value = one ? 1 : Random.Shared.Next(0, (max ?? DeathrollGame.OpeningMax) + 1);
         chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll debug] {dummy.Name} rolls {value} (out of {max ?? DeathrollGame.OpeningMax})" });
-        Receive(dummy, value, max);
+        Host.Receive(dummy, value, max);
     }
 
     // A cross-world party is not in IPartyList; read the local group from the cross-realm proxy (read-only).
@@ -330,16 +266,6 @@ public sealed class Plugin : IDalamudPlugin
 
     // ---- chat and tick ----
 
-    // Each call replaces what waits for Post (an older call is stale), but the lines of one event stay together.
-    // Auto-post sends the event's lines up to the first one of a kind the host holds back; that one and the rest wait.
-    private void Propose(params (CallKind Kind, string Line)[] lines)
-    {
-        var (send, hold) = Lines.SplitAuto(Config.AutoPost, Config.HeldFromAutoPost, lines);
-        foreach (var line in send) Enqueue(CallPrefix, line);
-        Proposed.Clear();
-        Proposed.AddRange(hold);
-    }
-
     // Every posted line is host-worded now (templates, rules, ad), so each one gets the game-sanitiser check before sending.
     private void Enqueue(string prefix, string line)
     {
@@ -353,24 +279,7 @@ public sealed class Plugin : IDalamudPlugin
         else if (!outbox.Add(prefix, line, true)) Alert($"Not sent (already waiting, or {Outbox.MaxWaiting} lines queued): {line}");
     }
 
-    private void ClearAlert()
-    {
-        LastAlert = null;
-        alertIsPending = false;
-    }
-
-    /// <summary>The wrong-roll alert names Accept, which is gone once the roll is accepted or rerolled right.</summary>
-    private void ClearSettledAlert()
-    {
-        if (alertIsPending && Game.Pending is null) ClearAlert();
-    }
-
-    private void Alert(string text, bool aboutPending = false)
-    {
-        LastAlert = text;
-        alertIsPending = aboutPending;
-        chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {text}" });
-    }
+    private void Alert(string text) => Host.Alert(text);
 
     private void OnChatMessage(IHandleableChatMessage message)
     {
@@ -392,66 +301,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         if (roll is not { } r || name is null) return;
-        Receive(Game.Find(name), r.Value, r.Max);
-    }
-
-    private void Receive(Player? player, int value, int? max)
-    {
-        var outcome = Game.OnRoll(player, value, max);
-        var shownMax = (max ?? DeathrollGame.OpeningMax).ToString();
-        switch (outcome)
-        {
-            case RollOutcome.OpeningWrongMax:
-                var firstOpening = CallWrongRollOnce(player!, value, max, null);
-                Alert($"{player!.Name} rolled out of {shownMax}: the opening roll is a plain {RollCommand(null)}. Not counted." +
-                      (firstOpening ? " Called them to reroll." : ""));
-                break;
-            case RollOutcome.AlreadyRolled:
-                Alert($"{player!.Name} rolled again during the opening. Ignored.");
-                break;
-            case RollOutcome.OutOfTurn:
-                Alert($"{player!.Name} rolled out of turn ({Game.Current?.Name} is up). Ignored.");
-                break;
-            case RollOutcome.WrongMax:
-                var first = CallWrongRollOnce(player!, value, max, Game.Limit);
-                Alert($"{player!.Name} rolled {value} out of {shownMax}, expected {RollCommand(Game.Limit)}. " +
-                      (first ? "Called them to reroll; Accept counts it anyway." : "Already called to reroll this turn; Accept counts it anyway."), aboutPending: true);
-                break;
-            default:
-                Handle(outcome);
-                ClearSettledAlert();
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Calls the player to reroll, naming the right roll, the first time they roll the wrong number in a turn (in the
-    /// opening: in the round). A second wrong roll in the same turn only alerts, so a muddle never spams chat.
-    /// </summary>
-    private bool CallWrongRollOnce(Player p, int value, int? max, int? limit)
-    {
-        var key = $"{Game.TurnId}/{p.Name}";
-        if (wrongRollCalledFor == key) return false;
-        wrongRollCalledFor = key;
-        Propose((CallKind.WrongRoll, Lines.WrongRoll(p.Name, value, max ?? DeathrollGame.OpeningMax, RollCommand(limit), Config.Messages)));
-        return true;
-    }
-
-    private void Handle(RollOutcome outcome)
-    {
-        switch (outcome)
-        {
-            case RollOutcome.OrderSet:
-                if (Game.OpeningTie) Alert($"Tie for the highest opening roll: {Game.Starter?.Name} starts as the first of them in the list. Restart the round for a roll-off.");
-                CallCurrent();
-                break;
-            case RollOutcome.Next:
-                CallCurrent();
-                break;
-            case RollOutcome.Won:
-                Propose((CallKind.Win, Lines.Won(Game.Winner!.Name, Game.WinningRoll, Game.Round, m: Config.Messages)));
-                break;
-        }
+        Host.Receive(Game.Find(name), r.Value, r.Max);
     }
 
     private void Remind()
@@ -470,7 +320,7 @@ public sealed class Plugin : IDalamudPlugin
     private void OnLogout(int type, int code)
     {
         outbox.Clear();
-        Proposed.Clear();
+        Host.Proposed.Clear();
         ResetRings();
     }
 

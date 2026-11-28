@@ -169,10 +169,10 @@ public sealed partial class MainWindow : Window
         if (game.Phase != Phase.GameOver)
         {
             ImGui.SameLine();
-            using (ImRaii.Disabled(game.Current is null))
+            using (ImRaii.Disabled(game.Phase != Phase.Turns || game.Current is null)) // no call while a won round waits for its pick
             {
                 if (MaterialKos.Button("Rewind to previous call", MaterialButton.Tonal, FontAwesomeIcon.Bullhorn)) plugin.CallCurrent();
-                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Posts the last call again: whoever is up, with their roll. Changes no rolls.");
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Posts the last call again: whoever is up, with their roll. Changes no rolls. Only while the turns are on.");
             }
         }
         ImGui.SameLine();
@@ -760,7 +760,7 @@ public sealed partial class MainWindow : Window
         Phase.Opening => $"Round {g.Round}: opening rolls {g.Active.Count(p => p.Opening is not null)}/{g.Active.Count()}.",
         Phase.Turns => $"Round {g.Round}: next to roll is {g.Current?.Name} - {plugin.RollCommand(g.Limit)}.",
         Phase.Pick => $"Round {g.Round}: {g.Winner?.Name} rolled {g.WinningRoll} and wins. Who strips, and what?",
-        Phase.GameOver => $"Game over: {g.Active.FirstOrDefault()?.Name ?? "nobody"} is the last one standing.",
+        Phase.GameOver => $"Game over: {g.Champion ?? "nobody"} is the last one standing.",
         _ => "",
     };
 }

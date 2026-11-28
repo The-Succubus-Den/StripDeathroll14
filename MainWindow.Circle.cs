@@ -129,7 +129,7 @@ public sealed partial class MainWindow
                     if (ImGui.Selectable("Roll for this dummy")) edit = () => plugin.SimulateRoll(p, false);
                     if (ImGui.Selectable("Make this dummy roll a 1")) edit = () => plugin.SimulateRoll(p, true);
                 }
-                if (ImGui.Selectable("Remove (hold Ctrl)", false, ImGui.GetIO().KeyCtrl ? ImGuiSelectableFlags.None : ImGuiSelectableFlags.Disabled)) edit = () => game.Remove(p);
+                if (ImGui.Selectable("Remove (hold Ctrl)", false, ImGui.GetIO().KeyCtrl ? ImGuiSelectableFlags.None : ImGuiSelectableFlags.Disabled)) edit = () => plugin.RemovePlayer(p);
                 ImGui.EndPopup();
             }
         }
