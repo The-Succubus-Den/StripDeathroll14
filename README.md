@@ -50,7 +50,7 @@ A short **mock-up** walkthrough (not real gameplay) cross-fades through setup, y
 ### What it is not meant to do
 
 - **It does not roll for anyone but you,** and it rolls for you only when you press *Roll for me* or run `/sdr roll`.
-- **It does not post on its own unless you turn on Auto-post.** By default every call and result waits in the window for *Post*. A newer call replaces one you have not posted, but the lines of one event stay together: after a pick, the win (if not posted yet, without its "who strips?"), who lost what, and the next call or game-over line wait as one batch.
+- **It does not post on its own unless you turn on Auto-post.** By default every call and result waits in the window for *Post*; with Auto-post on you can still hold back chosen kinds of line (see Settings). A newer call replaces one you have not posted, but the lines of one event stay together: after a pick, the win (if not posted yet, without its "who strips?"), who lost what, and the next call or game-over line wait as one batch.
 - **It does not choose who strips or what comes off.** That is the winner's call; you pick both in the window.
 - **It does not handle bets or gil.**
 
@@ -71,7 +71,7 @@ Everything posted goes through one queue, sent with `UIModule.ProcessChatBoxEntr
 
 - **Venue** — Private room (yell) or Public (party/alliance).
 - **Calls in** — Venue default, Say, Yell or Party.
-- **Auto-post** — off by default; on posts calls and results as they happen.
+- **Auto-post** — off by default; on posts calls and results as they happen. The button next to it (*All lines* / *N of 6 lines*) picks which lines it sends: round start, call, win, strip (and strip-out), game over, wrong roll. An unticked line waits in the window for *Post* instead, together with the lines after it in the same post, so chat always gets them in order (untick *Strip* and, after a pick, the strip line and the next call both wait). Reminders have their own switch; *Ask for reroll* always sends.
 - **Messages** — the rules and ad texts and the channel they go to (Say, Yell, Party), and the game lines' wording.
 - **Reminder** (Settings tab) — on/off (off by default), seconds of quiet (15–120), the channel for each wait's first reminder (Venue default, Say, Yell or Party; saved Say/Party choices carry over), or only to your own Echo.
 - **Look** — the window uses MaterialKos (Material 3 colours) in the KosMos palette: night-blue surfaces with crimson and gold, and rounder windows and frames. It follows your Dalamud theme's light or dark choice and keeps its background transparency. **Frosted glass** (Settings → Window, off by default) blurs whatever is behind the window, the game and other windows, tinted night blue, using Dalamud's own blur; the window turns slightly see-through for it (at most 85% opaque) and gets no blur while dragged out of the game window. There is no other style setting while this look is being tested.

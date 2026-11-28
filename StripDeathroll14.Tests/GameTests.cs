@@ -492,6 +492,27 @@ public class GameTests
     }
 
     [Fact]
+    public void AutoPostHoldsChosenKindsAndWhatFollowsThem()
+    {
+        (CallKind, string)[] pick = [(CallKind.Win, "win"), (CallKind.Strip, "strip"), (CallKind.Call, "call")];
+        var (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind>(), pick);
+        Assert.Equal(["win", "strip", "call"], send);
+        Assert.Empty(hold);
+        (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind> { CallKind.Call }, pick);
+        Assert.Equal(["win", "strip"], send);
+        Assert.Equal(["call"], hold);
+        (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind> { CallKind.Strip }, pick); // the call after a held strip waits too
+        Assert.Equal(["win"], send);
+        Assert.Equal(["strip", "call"], hold);
+        (send, hold) = Lines.SplitAuto(false, new HashSet<CallKind>(), pick); // Auto-post off: everything waits
+        Assert.Empty(send);
+        Assert.Equal(["win", "strip", "call"], hold);
+        (send, hold) = Lines.SplitAuto(true, new HashSet<CallKind> { CallKind.WrongRoll }, (CallKind.WrongRoll, "wrong"));
+        Assert.Empty(send);
+        Assert.Equal(["wrong"], hold);
+    }
+
+    [Fact]
     public void LinesAndCommands()
     {
         Assert.Equal("/random", Lines.RollCommand(Venue.Private, false, null));

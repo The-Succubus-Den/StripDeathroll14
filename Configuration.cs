@@ -19,6 +19,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Off by default: calls and results wait in the window for a Post press.</summary>
     public bool AutoPost { get; set; }
 
+    /// <summary>Line kinds Auto-post does not send: they wait in the window for Post. Empty by default (Auto-post sends all).</summary>
+    public HashSet<CallKind> HeldFromAutoPost { get; set; } = [];
+
     /// <summary>Each gap between two sent lines is random within these limits, 2-5 s (Outbox clamps them too).</summary>
     public int SendMinSeconds { get; set; } = 2;
     public int SendMaxSeconds { get; set; } = 4;
@@ -76,6 +79,7 @@ public sealed class Configuration : IPluginConfiguration
         }
 
         if (!Enum.IsDefined(ReminderCallChannel)) ReminderCallChannel = CallChannel.Venue;
+        HeldFromAutoPost = [.. (HeldFromAutoPost ?? []).Where(Enum.IsDefined)];
         BeamOpacity = Math.Clamp(BeamOpacity, 0, 100);
         ReminderSeconds = Math.Clamp(ReminderSeconds, MinReminderSeconds, 120);
         SendMinSeconds = Math.Clamp(SendMinSeconds, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000);

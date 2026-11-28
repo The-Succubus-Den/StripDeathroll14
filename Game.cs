@@ -34,6 +34,17 @@ public enum Piece
     Shoes = 2,
 }
 
+/// <summary>The kinds of game line Auto-post can send; each can be held back for Post. Saved as a number: never renumber, only append.</summary>
+public enum CallKind
+{
+    RoundStart = 0,
+    Call = 1,
+    Win = 2,
+    Strip = 3, // the strip line and the strip-and-out line
+    GameOver = 4,
+    WrongRoll = 5,
+}
+
 public enum Phase { Setup, Opening, Turns, Pick, GameOver }
 
 /// <summary>What the world overlay draws under a player.</summary>
@@ -605,6 +616,28 @@ public sealed class Messages
 /// <summary>Every line the plugin posts, and the command prefixes it posts them with.</summary>
 public static class Lines
 {
+    public static string KindLabel(CallKind k) => k switch
+    {
+        CallKind.RoundStart => "Round start",
+        CallKind.Call => "Call (whose turn, what to roll)",
+        CallKind.Win => "Win",
+        CallKind.Strip => "Strip, and strip-out",
+        CallKind.GameOver => "Game over",
+        CallKind.WrongRoll => "Wrong roll",
+        _ => k.ToString(),
+    };
+
+    /// <summary>
+    /// Which lines of one event Auto-post sends now and which wait for Post. Auto-post off: all wait. On: a line of a
+    /// held kind waits, and so does every line after it in the same event, so chat never gets them out of order.
+    /// </summary>
+    public static (List<string> Send, List<string> Hold) SplitAuto(bool autoPost, ICollection<CallKind> held, params (CallKind Kind, string Line)[] lines)
+    {
+        var cut = autoPost ? Array.FindIndex(lines, l => held.Contains(l.Kind)) : 0;
+        if (cut < 0) cut = lines.Length;
+        return (lines.Take(cut).Select(l => l.Line).ToList(), lines.Skip(cut).Select(l => l.Line).ToList());
+    }
+
     /// <summary>What became of a roll, as the History tab and the CSV export word it.</summary>
     public static string NoteLabel(RollNote n) => n switch
     {

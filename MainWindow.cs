@@ -100,6 +100,8 @@ public sealed partial class MainWindow : Window
         if (MaterialKos.Switch("Auto-post", ref auto)) { config.AutoPost = auto; plugin.SaveConfig(); }
         if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Post calls and results as they happen ({config.SendMinSeconds}-{config.SendMaxSeconds} s apart). Off: they wait below for Post.");
         ImGui.SameLine();
+        DrawAutoPostKinds(config);
+        ImGui.SameLine();
         ImGui.SetNextItemWidth(120);
         int lo = config.SendMinSeconds, hi = config.SendMaxSeconds;
         if (ImGui.DragIntRange2("between lines", ref lo, ref hi, 0.05f, Outbox.MinGapMs / 1000, Outbox.MaxGapMs / 1000, "%d s"))
@@ -230,6 +232,31 @@ public sealed partial class MainWindow : Window
             }
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Takes that piece off, posts who lost what, and calls the next round's first roll (or the game over)."); 
         }
+    }
+
+    /// <summary>A button that says how many line kinds Auto-post sends and opens a checklist of them.</summary>
+    private void DrawAutoPostKinds(Configuration config)
+    {
+        var kinds = Enum.GetValues<CallKind>();
+        var sent = kinds.Count(k => !config.HeldFromAutoPost.Contains(k));
+        using (ImRaii.Disabled(!config.AutoPost))
+            if (MaterialKos.Button($"{(sent == kinds.Length ? "All lines" : $"{sent} of {kinds.Length} lines")}###autokinds", MaterialButton.Text, FontAwesomeIcon.Tasks))
+                ImGui.OpenPopup("autokinds");
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(config.AutoPost
+                ? "Choose which lines Auto-post sends. An unticked one waits below for Post instead, and so do the lines after it in the same post (so chat gets them in order)."
+                : "Which lines Auto-post sends; turn Auto-post on to choose. With it off, every line waits for Post.");
+        using var popup = ImRaii.Popup("autokinds");
+        if (!popup) return;
+        ImGui.TextDisabled("Auto-post sends the ticked lines; the others wait for Post.");
+        foreach (var k in kinds)
+        {
+            var on = !config.HeldFromAutoPost.Contains(k);
+            if (!ImGui.Checkbox(Lines.KindLabel(k), ref on)) continue;
+            if (on) config.HeldFromAutoPost.Remove(k); else config.HeldFromAutoPost.Add(k);
+            plugin.SaveConfig();
+        }
+        ImGui.TextDisabled("Reminders have their own switch in Settings. Ask for reroll always sends.");
     }
 
     private void DrawProposed()

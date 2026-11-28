@@ -156,7 +156,7 @@ public sealed class Plugin : IDalamudPlugin
         if (!Game.CanStartRound) return;
         ClearAlert(); // an alert about the round before (or the one being restarted) is stale now
         Game.StartRound();
-        if (Game.Phase == Phase.Opening) Propose(Lines.Opening(Game.Round, RollCommand(null), Config.Messages));
+        if (Game.Phase == Phase.Opening) Propose((CallKind.RoundStart, Lines.Opening(Game.Round, RollCommand(null), Config.Messages)));
     }
 
     /// <summary>A clean slate: the game reset, plus the window's leftovers from the last one (alert, unposted lines, roll guard).</summary>
@@ -200,7 +200,7 @@ public sealed class Plugin : IDalamudPlugin
         if (!edit()) return false;
         ClearAlert();
         if ((Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll) == before) return true;
-        if (Game.Phase == Phase.Pick && Game.Winner is { } w) Propose(Lines.Won(w.Name, Game.WinningRoll, Game.Round, m: Config.Messages));
+        if (Game.Phase == Phase.Pick && Game.Winner is { } w) Propose((CallKind.Win, Lines.Won(w.Name, Game.WinningRoll, Game.Round, m: Config.Messages)));
         else if (Game.Phase == Phase.Turns && Game.Pending is null) CallCurrent();
         else Proposed.Clear(); // back in the opening, or a wrong number waits for the host: an older call is stale
         return true;
@@ -215,11 +215,11 @@ public sealed class Plugin : IDalamudPlugin
 
         // One event, one batch: the win (if not posted yet), who lost what, then the game-over line or the next call.
         var m = Config.Messages;
-        var lines = new List<string>();
-        if (w is not null && Proposed.Contains(Lines.Won(w.Name, roll, round, m: m))) lines.Add(Lines.Won(w.Name, roll, round, ask: false, m: m));
-        lines.Add(Lines.Stripped(target.Name, piece, target.Lives, m));
-        if (Game.Phase == Phase.GameOver) lines.Add(Lines.GameOver(Game.Active.First().Name, m));
-        else if (Game.Current is { } p) lines.Add(Lines.Call(p.Name, RollCommand(Game.Limit), m));
+        var lines = new List<(CallKind, string)>();
+        if (w is not null && Proposed.Contains(Lines.Won(w.Name, roll, round, m: m))) lines.Add((CallKind.Win, Lines.Won(w.Name, roll, round, ask: false, m: m)));
+        lines.Add((CallKind.Strip, Lines.Stripped(target.Name, piece, target.Lives, m)));
+        if (Game.Phase == Phase.GameOver) lines.Add((CallKind.GameOver, Lines.GameOver(Game.Active.First().Name, m)));
+        else if (Game.Current is { } p) lines.Add((CallKind.Call, Lines.Call(p.Name, RollCommand(Game.Limit), m)));
         Propose([.. lines]);
     }
 
@@ -245,7 +245,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void CallCurrent()
     {
-        if (Game.Current is { } p) Propose(Lines.Call(p.Name, RollCommand(Game.Limit), Config.Messages));
+        if (Game.Current is { } p) Propose((CallKind.Call, Lines.Call(p.Name, RollCommand(Game.Limit), Config.Messages)));
     }
 
     /// <summary>Your roll right now: a fresh /random for the opening or when you start the turns, else the previous roll; null when it is not your roll.</summary>
@@ -331,11 +331,13 @@ public sealed class Plugin : IDalamudPlugin
     // ---- chat and tick ----
 
     // Each call replaces what waits for Post (an older call is stale), but the lines of one event stay together.
-    private void Propose(params string[] lines)
+    // Auto-post sends the event's lines up to the first one of a kind the host holds back; that one and the rest wait.
+    private void Propose(params (CallKind Kind, string Line)[] lines)
     {
-        if (Config.AutoPost) { foreach (var line in lines) Enqueue(CallPrefix, line); return; }
+        var (send, hold) = Lines.SplitAuto(Config.AutoPost, Config.HeldFromAutoPost, lines);
+        foreach (var line in send) Enqueue(CallPrefix, line);
         Proposed.Clear();
-        Proposed.AddRange(lines);
+        Proposed.AddRange(hold);
     }
 
     // Every posted line is host-worded now (templates, rules, ad), so each one gets the game-sanitiser check before sending.
@@ -431,7 +433,7 @@ public sealed class Plugin : IDalamudPlugin
         var key = $"{Game.TurnId}/{p.Name}";
         if (wrongRollCalledFor == key) return false;
         wrongRollCalledFor = key;
-        Propose(Lines.WrongRoll(p.Name, value, max ?? DeathrollGame.OpeningMax, RollCommand(limit), Config.Messages));
+        Propose((CallKind.WrongRoll, Lines.WrongRoll(p.Name, value, max ?? DeathrollGame.OpeningMax, RollCommand(limit), Config.Messages)));
         return true;
     }
 
@@ -447,7 +449,7 @@ public sealed class Plugin : IDalamudPlugin
                 CallCurrent();
                 break;
             case RollOutcome.Won:
-                Propose(Lines.Won(Game.Winner!.Name, Game.WinningRoll, Game.Round, m: Config.Messages));
+                Propose((CallKind.Win, Lines.Won(Game.Winner!.Name, Game.WinningRoll, Game.Round, m: Config.Messages)));
                 break;
         }
     }
