@@ -16,9 +16,11 @@ public sealed record HostSettings(
 /// </summary>
 public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Action<string, string> send, Action<string> echo)
 {
-    private readonly HashSet<string> wrongRollCalled = []; // turn + player whose wrong roll already got its reroll call: one per turn (per player in the opening)
+    // The reroll call, once per turn (per player in the opening), keyed turn + player:
+    private readonly HashSet<string> wrongRollCalled = []; // made: sent, or put in Proposed
+    private readonly HashSet<string> wrongRollSent = [];   // reached chat (Auto-post, Post or Ask for reroll)
+    private readonly List<(string Key, Player Player, string Line)> waitingWrongRolls = []; // in Proposed, taken out once answered
     private bool alertIsPending;        // LastAlert is about the wrong roll waiting for Accept; it goes once that is settled
-    private (Player Player, string Line)? waitingWrongRoll; // the reroll call last put in Proposed, to take out once it is answered
 
     public DeathrollGame Game { get; } = game;
 
@@ -52,6 +54,8 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
         Game.NewGame();
         ClearAlert();
         wrongRollCalled.Clear();
+        wrongRollSent.Clear();
+        waitingWrongRolls.Clear();
         Proposed.Clear();
     }
 
@@ -60,8 +64,17 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
     {
         Game.ClearPlayers();
         ClearAlert();
+        waitingWrongRolls.Clear();
         Proposed.Clear();
     }
+
+    /// <summary>Debug mode off: the dummies leave, through the same path as removing a player by hand.</summary>
+    public void RemoveDummies() => AfterChange(() =>
+    {
+        var any = Game.Players.Any(p => p.IsDummy);
+        Game.RemoveDummies();
+        return any;
+    });
 
     /// <summary>
     /// Takes a player off the list. If the game moved because of it (they were up, the opening is now complete, the
@@ -84,20 +97,39 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
         return Game.RollLog.Count > count ? $"Added {p.Name}'s {value}." : $"Not added: {p.Name} cannot roll now (out, or the round is already won).";
     }
 
+    private (Phase Phase, Player? Current, int? Limit, Player? Winner, int WinningRoll, (Player, int, int?)? Pending) Moment() =>
+        (Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll, Game.Pending is { } p ? (p.Player, p.Value, p.Max) : null);
+
     private bool AfterChange(Func<bool> change)
     {
-        var before = (Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll);
+        var before = Moment();
         if (!change()) return false;
-        ClearAlert();
         DropAnsweredWrongRoll(); // the wrong roll it answered may be gone (deleted, edited right, or its player left)
-        if ((Game.Phase, Game.Current, Game.Limit, Game.Winner, Game.WinningRoll) == before) return true;
+        var now = Moment();
+        if (now == before) return true; // nothing moved: what waits and the alert still hold
+        ClearAlert();
+        if (now with { Pending = null } == before with { Pending = null })
+        {
+            // only the waiting wrong roll changed (deleted, edited, or now there): same player, same roll due, no new call
+            if (Game.Pending is { } still) PendingAlert(still);
+            return true;
+        }
+
         if (Game.Phase == Phase.Pick && Game.Winner is { } w) Propose((CallKind.Win, Lines.Won(w.Name, Game.WinningRoll, Game.Round, m: S.Messages)));
         else if (Game.Phase == Phase.Turns && Game.Pending is null)
         {
             if (before.Phase == Phase.Opening) TieAlert();
             CallCurrent();
         }
-        else Proposed.Clear(); // back in the opening, stopped, or a wrong number waits for the host: an older call is stale
+        else
+        {
+            // back in the opening, stopped, or a wrong number waits for the host: an older call is stale, but a reroll
+            // call still owed (their wrong roll is the one waiting, or their opening roll is still due) stays
+            Proposed.RemoveAll(l => !waitingWrongRolls.Any(x => x.Line == l));
+            DropAnsweredWrongRoll();
+        }
+
+        if (Game.Pending is { } pending) PendingAlert(pending); // a wrong number (still, or now) waits for the host: say so
         return true;
     }
 
@@ -136,8 +168,11 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
     {
         if (Game.Pending is not { } pending || Game.Phase != Phase.Turns || pending.Player != Game.Current) return;
         var line = WrongRollLine(pending);
+        var key = WrongRollKey(pending.Player);
         Proposed.Remove(line);
-        wrongRollCalled.Add($"{Game.TurnId}/{pending.Player.Name}");
+        waitingWrongRolls.RemoveAll(w => w.Key == key);
+        wrongRollCalled.Add(key);
+        wrongRollSent.Add(key);
         send(CallPrefix, line);
     }
 
@@ -149,6 +184,8 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
 
     public void PostProposed()
     {
+        foreach (var w in waitingWrongRolls.Where(w => Proposed.Contains(w.Line))) wrongRollSent.Add(w.Key);
+        waitingWrongRolls.Clear();
         foreach (var line in Proposed) send(CallPrefix, line);
         Proposed.Clear();
     }
@@ -162,8 +199,8 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
         switch (outcome)
         {
             case RollOutcome.OpeningWrongMax:
-                var opening = CallWrongRollOnce(player!, value, max, null);
-                Alert($"{player!.Name} rolled out of {shownMax}: the opening roll is a plain {RollCommand(null)}. Not counted. {CallNote(opening)}");
+                CallWrongRollOnce(player!, value, max, null);
+                Alert($"{player!.Name} rolled out of {shownMax}: the opening roll is a plain {RollCommand(null)}. Not counted. {CallNote(player!)}");
                 break;
             case RollOutcome.AlreadyRolled:
                 Alert($"{player!.Name} rolled again during the opening. Ignored.");
@@ -172,8 +209,8 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
                 Alert($"{player!.Name} rolled out of turn ({Game.Current?.Name} is up). Ignored.");
                 break;
             case RollOutcome.WrongMax:
-                var turn = CallWrongRollOnce(player!, value, max, Game.Limit);
-                Alert($"{player!.Name} rolled {value} out of {shownMax}, expected {RollCommand(Game.Limit)}. {CallNote(turn)} Accept counts it anyway.", aboutPending: true);
+                CallWrongRollOnce(player!, value, max, Game.Limit);
+                PendingAlert(Game.Pending!.Value);
                 break;
             default:
                 Handle(outcome);
@@ -185,42 +222,65 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
     }
 
     /// <summary>
-    /// Takes the waiting reroll call out of Proposed once its player no longer owes that reroll: they made their
-    /// opening roll, the wrong roll was settled, or they left. In the turns a settled roll moves the turn, whose call
-    /// replaces it anyway; in the opening nothing else would.
+    /// Takes a waiting reroll call out of Proposed once its player no longer owes that reroll: they made their opening
+    /// roll, the wrong roll was settled, or they left. In the turns a settled roll moves the turn, whose call replaces it
+    /// anyway; in the opening nothing else would. A call already gone from Proposed (posted, discarded) is forgotten.
     /// </summary>
     private void DropAnsweredWrongRoll()
     {
-        if (waitingWrongRoll is not var (p, line)) return;
-        var owed = Game.Players.Contains(p) && !p.Out &&
-            (Game.Phase == Phase.Opening && p.Opening is null || Game.Phase == Phase.Turns && Game.Pending?.Player == p);
-        if (owed && Proposed.Contains(line)) return;
-        Proposed.Remove(line);
-        waitingWrongRoll = null;
+        for (var n = waitingWrongRolls.Count - 1; n >= 0; n--)
+        {
+            var w = waitingWrongRolls[n];
+            var owed = Game.Players.Contains(w.Player) && !w.Player.Out && w.Key == WrongRollKey(w.Player) && // still that turn (an edit can move it)
+                (Game.Phase == Phase.Opening && w.Player.Opening is null || Game.Phase == Phase.Turns && Game.Pending?.Player == w.Player);
+            var at = Proposed.IndexOf(w.Line);
+            if (owed && at >= 0)
+            {
+                // the same call, but an edit may have changed the roll due or the wrong roll itself: keep its words true
+                if (Game.Phase == Phase.Turns && WrongRollLine(Game.Pending!.Value) is var fresh && fresh != w.Line)
+                {
+                    Proposed[at] = fresh;
+                    waitingWrongRolls[n] = w with { Line = fresh };
+                }
+
+                continue;
+            }
+
+            if (!owed && at >= 0) Proposed.RemoveAt(at);
+            waitingWrongRolls.RemoveAt(n);
+        }
     }
 
-    private enum WrongRollCall { AlreadyMade, Sent, Waiting }
+    private string WrongRollKey(Player p) => $"{Game.TurnId}/{p.Name}";
 
-    private static string CallNote(WrongRollCall c) => c switch
+    /// <summary>What became of this turn's reroll call for p, truthfully: it went, it waits, it was discarded, or none was made.</summary>
+    private string CallNote(Player p)
     {
-        WrongRollCall.Sent => "Called them to reroll.",
-        WrongRollCall.Waiting => "Their reroll call waits for Post.",
-        _ => "Their reroll call was already made this turn.",
-    };
+        var key = WrongRollKey(p);
+        if (wrongRollSent.Contains(key)) return "Their reroll call went to chat.";
+        if (waitingWrongRolls.Any(w => w.Key == key && Proposed.Contains(w.Line))) return "Their reroll call waits for Post.";
+        if (wrongRollCalled.Contains(key)) return "Their reroll call was discarded, not posted (once per turn); Ask for reroll sends one.";
+        return "No reroll call made; Ask for reroll sends one.";
+    }
+
+    /// <summary>The alert for the wrong-number roll waiting for the host: what was rolled, what was due, and the call's fate.</summary>
+    private void PendingAlert(PendingRoll p) =>
+        Alert($"{p.Player.Name} rolled {p.Value} out of {(p.Max ?? DeathrollGame.OpeningMax)}, expected {RollCommand(Game.Limit)}. {CallNote(p.Player)} Accept counts it anyway.", aboutPending: true);
 
     /// <summary>
     /// Calls the player to reroll, naming the right roll, the first time they roll the wrong number in a turn (in the
-    /// opening: in the round). A second wrong roll in the same turn only alerts, so a muddle never spams chat.
+    /// opening: in the round). A second wrong roll in the same turn only alerts, so a muddle never spams chat. In the
+    /// opening the call joins what waits for Post (another player's call, the round-start line) instead of replacing it.
     /// </summary>
-    private WrongRollCall CallWrongRollOnce(Player p, int value, int? max, int? limit)
+    private void CallWrongRollOnce(Player p, int value, int? max, int? limit)
     {
-        var key = $"{Game.TurnId}/{p.Name}";
-        if (!wrongRollCalled.Add(key)) return WrongRollCall.AlreadyMade;
+        var key = WrongRollKey(p);
+        if (!wrongRollCalled.Add(key)) return;
         var line = Lines.WrongRoll(p.Name, value, max ?? DeathrollGame.OpeningMax, RollCommand(limit), S.Messages);
-        Propose((CallKind.WrongRoll, line));
-        if (!Proposed.Contains(line)) return WrongRollCall.Sent;
-        waitingWrongRoll = (p, line);
-        return WrongRollCall.Waiting;
+        if (Game.Phase == Phase.Opening) Propose(keep: true, (CallKind.WrongRoll, line));
+        else Propose((CallKind.WrongRoll, line));
+        if (Proposed.Contains(line)) waitingWrongRolls.Add((key, p, line));
+        else wrongRollSent.Add(key);
     }
 
     private string WrongRollLine(PendingRoll p) =>
@@ -250,12 +310,14 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
 
     // Each event replaces what waits for Post (an older line is stale), but the lines of one event stay together.
     // Auto-post sends the lines of the kinds it is set to send and leaves the held kinds waiting, each kind on its own.
-    private void Propose(params (CallKind Kind, string Line)[] lines)
+    private void Propose(params (CallKind Kind, string Line)[] lines) => Propose(keep: false, lines);
+
+    private void Propose(bool keep, params (CallKind Kind, string Line)[] lines)
     {
         var s = S;
         var (sending, holding) = Lines.SplitAuto(s.AutoPost, s.HeldFromAutoPost, lines);
-        Proposed.Clear();
-        Proposed.AddRange(holding);
+        if (!keep) Proposed.Clear();
+        Proposed.AddRange(holding.Where(l => !Proposed.Contains(l)));
         foreach (var line in sending) send(CallPrefix, line);
     }
 

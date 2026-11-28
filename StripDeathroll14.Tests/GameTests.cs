@@ -901,6 +901,35 @@ public class GameTests
     }
 
     [Fact]
+    public void ClearHistoryKeepsAGameStillGoingBetweenRounds()
+    {
+        var g = Game("Ann Lee", "Bo Ray", "Cy Fox");
+        WinRound(g, "Ann Lee", "Bo Ray");                // Bo lost a piece; round 2 is in play
+        g.Remove(P(g, "Cy Fox"));
+        g.Remove(P(g, "Ann Lee"));                       // too few: round 2 stops, back to Setup mid-game
+        Assert.Equal(Phase.Setup, g.Phase);
+        g.ClearHistory();
+        Assert.Single(g.History);                        // Bo's missing piece still has its result line
+        Assert.Equal(2, P(g, "Bo Ray").Lives);
+    }
+
+    [Fact]
+    public void ReminderClockComesBackToTheSameWaitWithItsCount()
+    {
+        var c = new ReminderClock();
+        Assert.False(c.Due("A", 0, 1000));
+        Assert.True(c.Due("A", 1000, 1000));             // the first reminder of the wait (to chat)
+        Assert.False(c.NextGoesToChat);
+        Assert.False(c.Due(null, 1500, 1000));           // a wrong roll waits for the host: no reminders
+        Assert.False(c.Due("A", 1600, 1000));            // ...deleted: the same wait again
+        Assert.False(c.NextGoesToChat);                  // its next reminder goes to Echo, not to chat a second time
+        Assert.True(c.Due("A", 2600, 1000));
+        Assert.Equal(2, c.Sent);
+        Assert.False(c.Due("B", 2700, 1000));            // a new wait starts in chat again
+        Assert.True(c.NextGoesToChat);
+    }
+
+    [Fact]
     public void ClearHistoryKeepsARoundInPlay()
     {
         var g = Game("Ann Lee", "Bo Ray");
@@ -969,23 +998,23 @@ public class GameTests
     public void FirstReminderOfAWaitGoesToChatTheRestToEcho()
     {
         var clock = new ReminderClock();
-        Assert.False(clock.Due("alice", 0, 30_000));
+        Assert.False(clock.Due("t1/alice", 0, 30_000));
         Assert.True(clock.NextGoesToChat);
-        Assert.True(clock.Due("alice", 30_000, 30_000));
+        Assert.True(clock.Due("t1/alice", 30_000, 30_000));
         Assert.True(clock.LastWentToChat);                     // first: the reminder channel
         Assert.False(clock.NextGoesToChat);
-        Assert.True(clock.Due("alice", 60_000, 30_000));
+        Assert.True(clock.Due("t1/alice", 60_000, 30_000));
         Assert.False(clock.LastWentToChat);                    // second: Echo
-        Assert.True(clock.Due("alice", 90_000, 30_000));
+        Assert.True(clock.Due("t1/alice", 90_000, 30_000));
         Assert.False(clock.LastWentToChat);                    // third: Echo
-        Assert.False(clock.Due("bob", 95_000, 30_000));        // Alice rolled, Bob is up
+        Assert.False(clock.Due("t2/bob", 95_000, 30_000));        // Alice rolled, Bob is up
         Assert.True(clock.NextGoesToChat);
-        Assert.True(clock.Due("bob", 125_000, 30_000));
+        Assert.True(clock.Due("t2/bob", 125_000, 30_000));
         Assert.True(clock.LastWentToChat);                     // Bob's first goes to the channel again
-        Assert.True(clock.Due("bob", 155_000, 30_000));
+        Assert.True(clock.Due("t2/bob", 155_000, 30_000));
         Assert.False(clock.LastWentToChat);
-        Assert.False(clock.Due("alice", 160_000, 30_000));     // Alice's next turn: back to the channel first
-        Assert.True(clock.Due("alice", 190_000, 30_000));
+        Assert.False(clock.Due("t3/alice", 160_000, 30_000));  // Alice's next turn (a new turn, so a new key): back to the channel first
+        Assert.True(clock.Due("t3/alice", 190_000, 30_000));
         Assert.True(clock.LastWentToChat);
     }
 

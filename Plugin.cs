@@ -239,7 +239,9 @@ public sealed class Plugin : IDalamudPlugin
     public void SetDebugMode(bool on)
     {
         DebugMode = on;
-        if (!on) Game.RemoveDummies(); // dummies never reach a real game
+        if (on) return;
+        foreach (var d in Game.Players.Where(p => p.IsDummy).ToList()) spots.Remove(d);
+        Host.RemoveDummies(); // dummies never reach a real game; the call follows if one was up
     }
 
     /// <summary>Debug mode: rolls for a dummy as if it came from chat. one = force a 1 to end the round.</summary>

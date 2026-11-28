@@ -412,10 +412,10 @@ public sealed partial class MainWindow : Window
                 var keptCurrent = !game.CanClearCurrentHistory && (game.History.Count > 0 || game.RollLog.Count > 0);
                 game.ClearHistory();
                 editIndex = -1;
-                historyNote = keptCurrent ? "Past games cleared. This game's rounds stay while a round is in play." : "History cleared.";
+                historyNote = keptCurrent ? "Past games cleared. This game's rounds stay while it is going (they are where the players' pieces come from)." : "History cleared.";
             }
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                ImGui.SetTooltip("Ctrl+click: delete every past game and the tally, and this game's rounds too unless a round is in play. Players and pieces stay.");
+                ImGui.SetTooltip("Ctrl+click: delete every past game and the tally, and this game's rounds too once it is over (or nobody listed has played in it). Players and pieces stay.");
         }
 
         if (historyNote.Length > 0)

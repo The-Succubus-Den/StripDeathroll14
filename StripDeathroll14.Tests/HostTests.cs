@@ -164,9 +164,9 @@ public class HostTests
         Assert.Contains("waits for Post", held.Host.LastAlert);
         var on = Table.InTurns(auto: true);
         on.Roll("Ann Lee", 5, 10);
-        Assert.Contains("Called them to reroll", on.Host.LastAlert);
+        Assert.Contains("went to chat", on.Host.LastAlert);
         on.Roll("Ann Lee", 6, 10);
-        Assert.Contains("already made this turn", on.Host.LastAlert);
+        Assert.Contains("went to chat", on.Host.LastAlert);
         Assert.Single(on.SentLines, l => l.StartsWith("[WRONG]"));
     }
 
@@ -176,9 +176,9 @@ public class HostTests
         var t = new Table("Ann Lee", "Bo Ray", "Cy Fox");
         t.Host.StartRound();
         t.Roll("Bo Ray", 50, 100);
-        Assert.Equal(["[WRONG] Bo Ray 50 100 /random"], t.Host.Proposed);
+        Assert.Equal(["[RS] 1 /random", "[WRONG] Bo Ray 50 100 /random"], t.Host.Proposed); // the round-start line stays
         t.Roll("Bo Ray", 800, null);
-        Assert.Empty(t.Host.Proposed);
+        Assert.Equal(["[RS] 1 /random"], t.Host.Proposed);
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class HostTests
         Assert.Equal(t.P("Ann Lee"), t.Game.Current);
         t.Roll("Ann Lee", 60, 100);
         Assert.Single(t.SentLines, l => l.StartsWith("[WRONG]"));
-        Assert.Contains("already made this turn", t.Host.LastAlert);
+        Assert.Contains("went to chat", t.Host.LastAlert);
     }
 
     [Fact]
@@ -227,6 +227,93 @@ public class HostTests
         Assert.Equal("[WRONG] Ann Lee 7 10 /random", t.SentLines[^1]);
     }
 
+    [Fact]
+    public void OpeningRerollCallsWaitSideBySideAndTheAlertTellsTheTruth()
+    {
+        var t = new Table("Ann Lee", "Bo Ray", "Cy Fox");  // Auto-post off
+        t.Host.StartRound();
+        t.Roll("Ann Lee", 5, 10);
+        t.Roll("Bo Ray", 6, 10);                          // used to replace Ann's call (and the round-start line)
+        Assert.Equal(["[RS] 1 /random", "[WRONG] Ann Lee 5 10 /random", "[WRONG] Bo Ray 6 10 /random"], t.Host.Proposed);
+        t.Host.Proposed.Clear();                          // the host discards them
+        t.Roll("Ann Lee", 7, 10);
+        Assert.Contains("discarded, not posted", t.Host.LastAlert); // not "already made": nothing reached chat
+        Assert.Empty(t.Host.Proposed);                    // still once per turn
+    }
+
+    [Fact]
+    public void AnEditKeepsTheWrongRollAlertAndRewordsItsWaitingCall()
+    {
+        var t = Table.InTurns(auto: false);
+        t.Roll("Ann Lee", 400, null);                     // Bo up, to 400
+        t.Roll("Bo Ray", 50, 100);                        // wrong
+        Assert.Equal(["[WRONG] Bo Ray 50 100 /random 400"], t.Host.Proposed);
+        var alert = t.Host.LastAlert;
+        Assert.True(t.Host.EditRoll(0, 901, null));       // Ann's opening 900 -> 901: changes nothing
+        Assert.Equal(alert, t.Host.LastAlert);
+        Assert.True(t.Host.EditRoll(3, 300, null));       // Ann's 400 was really 300: Bo's call now names /random 300
+        Assert.Equal(["[WRONG] Bo Ray 50 100 /random 300"], t.Host.Proposed);
+        Assert.Contains("expected /random 300", t.Host.LastAlert);
+        Assert.Contains("waits for Post", t.Host.LastAlert);
+    }
+
+    [Fact]
+    public void DeletingTheWrongRollDoesNotCallThePlayerAgain()
+    {
+        var t = Table.InTurns(auto: true);
+        var sent = t.Sent.Count;
+        t.Roll("Ann Lee", 5, 10);
+        Assert.True(t.Host.DeleteRoll(t.Game.RollLog.Count - 1));
+        Assert.Equal(["[WRONG] Ann Lee 5 10 /random"], t.SentLines.Skip(sent)); // no second "Ann, roll /random"
+        Assert.Null(t.Host.LastAlert);
+    }
+
+    [Fact]
+    public void AReturningPlayerKeepsWhatTheyLostAndAFinishedGameStaysFinished()
+    {
+        var t = Table.InTurns(auto: true);
+        t.Roll("Ann Lee", 1, null);
+        t.Host.Pick(t.P("Bo Ray"), Piece.Top);
+        t.Host.RemovePlayer(t.P("Bo Ray"));
+        Assert.True(t.Game.Add("Bo Ray"));                // back in the same game: still without the top
+        Assert.Equal([Piece.Bottom, Piece.Shoes], t.P("Bo Ray").Worn);
+        Assert.Equal(1, t.P("Ann Lee").Wins);
+        t.Host.RemovePlayer(t.P("Ann Lee"));
+        Assert.True(t.Game.Add("Ann Lee"));
+        Assert.Equal(1, t.P("Ann Lee").Wins);
+
+        var g = new Table("Ann Lee", "Bo Ray") { AutoPost = true };
+        g.Host.StartRound();
+        g.Roll("Ann Lee", 900, null);
+        g.Roll("Bo Ray", 100, null);
+        foreach (var piece in DeathrollGame.AllPieces)
+        {
+            if (g.Game.Current?.Name == "Bo Ray") g.Roll("Bo Ray", 500, g.Game.Limit);
+            g.Roll("Ann Lee", 1, g.Game.Limit);
+            g.Host.Pick(g.P("Bo Ray"), piece);
+        }
+
+        Assert.Equal(Phase.GameOver, g.Game.Phase);
+        g.Host.RemovePlayer(g.P("Ann Lee"));              // the champion leaves: the game stays over (no restart from here)
+        Assert.Equal(Phase.GameOver, g.Game.Phase);
+        Assert.Equal("Ann Lee", g.Game.Champion);
+        Assert.False(g.Game.CanStartRound);
+    }
+
+    [Fact]
+    public void DebugModeOffRemovesTheDummiesThroughTheHost()
+    {
+        var t = new Table("Ann Lee", "Bo Ray") { AutoPost = true };
+        t.Game.AddDummy();
+        t.Host.StartRound();
+        t.Roll("Ann Lee", 100, null);
+        t.Roll("Bo Ray", 200, null);
+        t.Roll("Dummy Alpha", 900, null);                 // the dummy starts
+        Assert.Equal("Dummy Alpha", t.Game.Current!.Name);
+        t.Host.RemoveDummies();
+        Assert.Equal("[CALL] Ann Lee, /random", t.SentLines[^1]); // the turn passed on, and the call went with it
+    }
+
     // ---- fuzz: random hosts, random rolls, random edits; the rules are checked after every step ----
 
     private static readonly string[] Pool = ["Ann Lee", "Bo Ray", "Cy Fox", "Di Moon", "Ed Hale", "Flo Kay", "Gus Ward"];
@@ -235,6 +322,7 @@ public class HostTests
     public void RandomGamesKeepEveryRule()
     {
         var steps = 0;
+        var failures = new Dictionary<string, string>();
         for (var seed = 0; seed < 4000; seed++)
         {
             var rng = new Random(seed);
@@ -244,43 +332,72 @@ public class HostTests
             var log = new List<string>();
             var start = 0;                   // which start of the round (restarts, new rounds, new games), counted by the test itself
             var wrongCalls = new HashSet<string>();
+            var wrongSent = new HashSet<string>();
             for (var i = 0; i < 250; i++, steps++)
             {
                 var g = t.Game;
                 var (game, round, echoed, sent) = (g.GameNumber, g.Round, t.Echoed.Count, t.Sent.Count);
-                var turn = g.Phase == Phase.Opening ? $"{game}/{round}/{start}/o"
-                    : $"{game}/{round}/{start}/{g.Phase}/{g.RollLog.Count(r => r.Round == round && r.Note is RollNote.Counted or RollNote.Accepted or RollNote.Won)}/{g.Current?.Name}";
+                var turn = TurnKey(g, start);
+                var proposedBefore = t.Host.Proposed.ToList();
                 var pendingName = g.Pending?.Player.Name;
+                var (turnIdBefore, waitBefore) = (g.TurnId, g.WaitingKey);
                 var what = Step(t, rng);
                 log.Add(what);
-                if (what.StartsWith("start/restart") || what.StartsWith("pick") || what == "new game" || g.Round != round || g.GameNumber != game) start++;
+                if (what.StartsWith("start/restart") || what.StartsWith("pick") || what == "new game" || what.StartsWith("clear players") || g.Round != round || g.GameNumber != game) start++;
                 try
                 {
                     // USER RULE: one wrong-roll call per turn (per player in the opening), whatever is edited, added, removed or moved
-                    string? called = null;
-                    if (what.StartsWith("roll ") && t.Echoed.Skip(echoed).Any(e => e.Contains("Called them to reroll.") || e.Contains("waits for Post.")))
-                        called = what.Split(' ')[1] + " " + what.Split(' ')[2];
-                    if (called is not null) Assert.True(wrongCalls.Add($"{turn}/{called}"), $"a second wrong-roll call for {called} in turn {turn}");
+                    static string Who(string wrongLine) => string.Join(' ', wrongLine.Split(' ').Skip(1).Take(2));
+                    var waitedBefore = proposedBefore.Where(l => l.StartsWith("[WRONG]")).Select(Who).ToHashSet(); // a waiting call reworded by an edit is the same call
+                    var newCalls = t.Host.Proposed.Where(l => l.StartsWith("[WRONG]")).Select(Who).Where(w => !waitedBefore.Contains(w))
+                        .Concat(t.Sent.Skip(sent).Where(s => !s.Manual && s.Line.StartsWith("[WRONG]")).Select(s => Who(s.Line))).Distinct();
+                    foreach (var who in newCalls)
+                        Assert.True(wrongCalls.Add($"{turn}/{who}"), $"a second wrong-roll call for {who} in turn {turn}");
+                    foreach (var s in t.Sent.Skip(sent).Where(s => s.Line.StartsWith("[WRONG]")))
+                        wrongSent.Add($"{turn}/{Who(s.Line)}");
                     if (what == "ask" && t.Sent.Skip(sent).Any(s => s.Manual && s.Line.StartsWith("[WRONG]")))
                         wrongCalls.Add($"{turn}/{pendingName}"); // Ask always sends (even after the automatic call) and counts as the turn's call
+                    // the alert tells the truth about that call
+                    var turnNow = TurnKey(g, start);
+                    foreach (var e in t.Echoed.Skip(echoed).Where(e => e.Contains("reroll call")))
+                    {
+                        var who = e[..e.IndexOf(" rolled", StringComparison.Ordinal)];
+                        var k = $"{turnNow}/{who}";
+                        var waiting = t.Host.Proposed.Any(l => l.StartsWith($"[WRONG] {who} "));
+                        if (e.Contains("went to chat")) Assert.True(wrongSent.Contains(k), $"alert says {who}'s reroll call went to chat, none did in {turnNow}");
+                        else if (e.Contains("waits for Post")) Assert.True(waiting, $"alert says {who}'s reroll call waits for Post, it does not");
+                        else if (e.Contains("discarded")) Assert.True(wrongCalls.Contains(k) && !wrongSent.Contains(k) && !waiting, $"alert says {who}'s reroll call was discarded: {k} host {g.TurnId}; test calls [{string.Join(", ", wrongCalls.Where(c => c.EndsWith(who)))}] sent [{string.Join(", ", wrongSent.Where(c => c.EndsWith(who)))}] waiting {waiting}; log {string.Join("; ", g.RollLog.Where(r => r.Round == g.Round).Select(r => $"{r.Player} {r.Value}/{r.Max} {r.Note}"))}");
+                        else Assert.True(!wrongCalls.Contains(k), $"alert says no reroll call was made for {who}, one was in {turnNow}");
+                    }
+                    // listing, moving or removing someone who is not playing the turn leaves the turn and its wait alone
+                    if (what.StartsWith("add ") && !what.StartsWith("add roll") || what.StartsWith("move "))
+                    {
+                        Assert.True(turnIdBefore == g.TurnId, $"{what} changed the turn: {turnIdBefore} -> {g.TurnId}");
+                        Assert.True(waitBefore == g.WaitingKey, $"{what} changed the reminder wait: {waitBefore} -> {g.WaitingKey}");
+                    }
+                    CheckPieces(g);
                     CheckGame(t.Game);
                     CheckProposed(t);
                     CheckReplayIsStable(t);
                 }
                 catch (Exception e)
                 {
-                    throw new Exception($"seed {seed}, step {i}: {e.Message}\n  last steps: {string.Join(" | ", log.TakeLast(12))}", e);
+                    // one example of each kind of break (the text up to the first ':'), then the next seed
+                    var kind = e.Message.Split(':')[0];
+                    failures.TryAdd(kind, $"seed {seed}, step {i}: {e.Message}\n  last steps: {string.Join(" | ", log.TakeLast(12))}");
+                    break;
                 }
             }
         }
         Assert.True(steps > 0);
+        Assert.True(failures.Count == 0, $"{failures.Count} kinds of break:\n" + string.Join("\n", failures.Values));
     }
 
     private static string Step(Table t, Random rng)
     {
         var g = t.Game;
         var active = g.Active.ToList();
-        switch (rng.Next(100))
+        switch (rng.Next(107))
         {
             case < 45 when active.Count > 0:
             {
@@ -316,7 +433,8 @@ public class HostTests
             {
                 var could = g.CanStartRound;
                 t.Host.StartRound();
-                if (could) CheckRoundStart(g);
+                if (!could) return "start (not allowed)";
+                CheckRoundStart(g);
                 return "start/restart";
             }
             case < 77 when g.Players.Count > 0:
@@ -354,10 +472,41 @@ public class HostTests
             case < 97:
                 t.AutoPost = !t.AutoPost;
                 return $"autopost {t.AutoPost}";
-            case < 98 when g.Phase is Phase.GameOver or Phase.Setup: t.Host.NewGame(); return "new game";
+            case < 98: t.Host.NewGame(); return "new game"; // the window allows it at any time (Ctrl+click)
+            case < 101 when active.Count > 0 && g.CanEditRolls:
+            {
+                var p = active[rng.Next(active.Count)];
+                int? max = g.Phase == Phase.Turns && rng.Next(4) > 0 ? g.Limit : null;
+                var value = rng.Next(0, (max ?? DeathrollGame.OpeningMax) + 1);
+                t.Host.AddRoll(p, value, max);
+                return $"add roll {p.Name} {value}/{max?.ToString() ?? "-"}";
+            }
+            case < 103 when rng.Next(2) == 0 && g.Players.Count > 1:
+            {
+                var p = g.Players[rng.Next(g.Players.Count)];
+                var to = rng.Next(g.Players.Count);
+                g.MoveTo(p, to);
+                return $"move {p.Name} to {to}";
+            }
+            case < 103: t.Host.Proposed.Clear(); return "discard";
+            case < 104: g.ClearHistory(); return "clear history";
+            case < 106 when rng.Next(3) > 0:
+                if (rng.Next(2) == 0) { g.AddDummy(); return "add dummy"; }
+                t.Host.RemoveDummies();
+                return "remove dummies";
+            case < 106:
+            {
+                t.Host.ClearPlayers();
+                foreach (var n in Pool.OrderBy(_ => rng.Next()).Take(rng.Next(2, 5))) g.Add(n);
+                return "clear players + add some back";
+            }
             default: return "idle";
         }
     }
+
+    /// <summary>The turn as the test sees it, worked out on its own: which start of the round, rolls counted so far, who is up.</summary>
+    private static string TurnKey(DeathrollGame g, int start) => g.Phase == Phase.Opening ? $"{g.GameNumber}/{g.Round}/{start}/o"
+        : $"{g.GameNumber}/{g.Round}/{start}/{g.Phase}/{g.RollLog.Count(r => r.Round == g.Round && r.Note is RollNote.Counted or RollNote.Accepted or RollNote.Won)}/{g.Current?.Name}";
 
     /// <summary>USER RULE: round 1 opens with everyone rolling; from round 2 a (re)start begins with the player after the last winner.</summary>
     private static void CheckRoundStart(DeathrollGame g)
@@ -411,14 +560,28 @@ public class HostTests
                     break;
                 case CallKind.WrongRoll:
                     var name = line["[WRONG] ".Length..].Split(' ').Take(2) is var parts ? string.Join(' ', parts) : "";
-                    var ok = g.Phase == Phase.Turns && g.Pending?.Player.Name == name
-                          || g.Phase == Phase.Opening && g.Find(name) is { Opening: null, Out: false };
+                    var ok = g.Phase == Phase.Turns && g.Pending?.Player.Name == name && line.EndsWith(" " + t.Host.RollCommand(g.Limit))
+                          || g.Phase == Phase.Opening && g.Find(name) is { Opening: null, Out: false } && line.EndsWith(" " + t.Host.RollCommand(null));
                     Assert.True(ok, $"stale wrong-roll call waiting in {g.Phase}: {line}");
                     break;
                 case CallKind.Win when line.EndsWith(" ask"):
                     Assert.True(g.Phase == Phase.Pick && line.StartsWith($"[WIN] {g.Winner?.Name} "), $"stale win line waiting in {g.Phase}: {line}");
                     break;
             }
+        }
+    }
+
+    /// <summary>Pieces and wins follow the game's results: a player who left and came back has lost what they lost.</summary>
+    private static void CheckPieces(DeathrollGame g)
+    {
+        if (g.Phase == Phase.GameOver) return; // the history of a finished game may be cleared before New game
+        foreach (var p in g.Players)
+        {
+            var lost = g.History.Where(h => h.Target == p.Name).Select(h => h.Piece).ToList();
+            Assert.True(lost.Count == lost.Distinct().Count(), $"{p.Name} lost a piece twice in one game");
+            Assert.True(DeathrollGame.AllPieces.Except(lost).Order().SequenceEqual(p.Worn.Order()),
+                $"{p.Name} wears {string.Join("+", p.Worn)} but the results took {string.Join("+", lost)}");
+            Assert.True(g.History.Count(h => h.Winner == p.Name) == p.Wins, $"{p.Name} has {p.Wins} wins, the results say {g.History.Count(h => h.Winner == p.Name)}");
         }
     }
 
@@ -469,7 +632,11 @@ public class HostTests
         var r = g.RollLog[i];
         var proposed = t.Host.Proposed.ToList();
         var sent = t.Sent.Count;
+        var (alert, turn, wait) = (t.Host.LastAlert, g.TurnId, g.WaitingKey);
         Assert.True(t.Host.EditRoll(i, r.Value, r.Max));
+        Assert.True(alert == t.Host.LastAlert, $"an edit that changed nothing changed the alert: {alert ?? "none"} -> {t.Host.LastAlert ?? "none"}");
+        Assert.True(turn == g.TurnId, $"an edit that changed nothing changed the turn: {turn} -> {g.TurnId}");
+        Assert.True(wait == g.WaitingKey, $"an edit that changed nothing changed the reminder wait: {wait} -> {g.WaitingKey}");
         var logNow = string.Join("; ", g.RollLog.Select((x, k) => $"#{k} r{x.Round} {x.Player} {x.Value}/{x.Max?.ToString() ?? "-"} {x.Note}{(x.Accepted ? " acc" : "")}").Where(s => s.Contains($" r{g.Round} ")));
         Assert.True(before == Snap(), $"replay disagrees with live play (edited #{i}):\n   live   {before}\n   replay {Snap()}\n   log {logNow}");
         Assert.Equal(sent, t.Sent.Count);

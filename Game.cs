@@ -181,8 +181,12 @@ public sealed class DeathrollGame
     private int CountedThisRound => RollLog.Skip(RoundStart).Count(r => r.Note is RollNote.Counted or RollNote.Accepted or RollNote.Won);
     private int roundSerial; // one per start of a round (a restart included) and per new game or cleared table; a replay keeps it
 
-    /// <summary>No round in play, so the current game's lines can go too (a round in play needs its rolls to be edited).</summary>
-    public bool CanClearCurrentHistory => Phase is Phase.Setup or Phase.GameOver;
+    /// <summary>
+    /// The current game's lines can go too once it is over, or between rounds when nobody listed has a result in it:
+    /// the results are what a listed player's pieces and wins come from (and what a returning player gets back).
+    /// </summary>
+    public bool CanClearCurrentHistory =>
+        Phase == Phase.GameOver || Phase == Phase.Setup && !Players.Any(p => History.Any(h => h.Winner == p.Name || h.Target == p.Name));
 
     /// <summary>
     /// Drops the past games, and the current game's results and rolls when no round is in play. Players, pieces and the
@@ -193,6 +197,7 @@ public sealed class DeathrollGame
         PastGames.Clear();
         if (CanClearCurrentHistory)
         {
+            if (Phase == Phase.Setup) Round = 0; // its rounds are gone: the next one is round 1 again, opening with rolls
             History.Clear();
             RollLog.Clear();
         }
@@ -224,8 +229,10 @@ public sealed class DeathrollGame
     /// <summary>Changes whenever the game moves on; null when no roll is awaited. Drives the reminder clock.</summary>
     public string? WaitingKey => Phase switch
     {
-        Phase.Opening => $"{Round}/o/{string.Join(",", Waiting.Select(p => p.Name))}",
-        Phase.Turns when Pending is null && Current is not null => $"{Round}/t/{turnSerial}",
+        // By progress, like TurnId: the next opening roll in or the turn moving starts a new wait; a player listed, moved or
+        // removed, or an edit that leaves the turn where it was, does not (so its first reminder is not sent to chat twice).
+        Phase.Opening => $"{TurnId}/{RollLog.Skip(RoundStart).Count(r => r.Note == RollNote.Opening)}",
+        Phase.Turns when Pending is null && Current is not null => TurnId,
         _ => null,
     };
 
@@ -253,6 +260,12 @@ public sealed class DeathrollGame
         name = name.Trim();
         if (!Names.IsValid(name) || Players.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))) return false;
         var p = new Player { Name = name, IsDummy = dummy };
+        // Back in the same game (removed, or the list cleared, then listed again): what they lost stays lost, wins stay won.
+        foreach (var h in History)
+        {
+            if (string.Equals(h.Target, name, StringComparison.OrdinalIgnoreCase)) p.Worn.Remove(h.Piece);
+            if (string.Equals(h.Winner, name, StringComparison.OrdinalIgnoreCase)) p.Wins++;
+        }
         Players.Add(p);
         Note(RoundEventKind.Add, p);
         return true;
@@ -285,7 +298,7 @@ public sealed class DeathrollGame
         if (roundStarter == p) roundStarter = Players.Count > 1 ? NextActive(p) : null; // a replay after an edit still has a starter
         if (Current == p) Current = Players.Count > 1 ? NextActive(p) : null;
         if (Starter == p) Starter = null;
-        if (Winner == p) { Winner = null; Phase = Phase.Setup; }
+        if (Winner == p && Phase == Phase.Pick) { Winner = null; Phase = Phase.Setup; } // the round stops; a finished game stays finished
         if (Pending?.Player == p) Pending = null;
         Players.Remove(p);
         turnSerial++;
@@ -585,6 +598,8 @@ public sealed class ReminderClock
 {
     public const int MaxPerTurn = 3;
     private string? key;
+    private string? lastKey; // the wait before this one, and how many reminders it had: coming back to it is not a new wait
+    private int lastSent;
     private long dueAt;
     private long? pausedLeft; // ms on the clock while paused; a new wait while paused starts full and stays paused
 
@@ -616,10 +631,14 @@ public sealed class ReminderClock
     {
         if (stateKey != key)
         {
+            // Back to the wait just left (a wrong roll waited for the host and was then deleted, or an edit put the turn
+            // back): its reminders so far still count, so its first one does not go to chat twice.
+            var back = stateKey is not null && stateKey == lastKey;
+            if (key is not null) (lastKey, lastSent) = (key, Sent);
             key = stateKey;
             dueAt = now + intervalMs;
             if (pausedLeft is not null) pausedLeft = intervalMs;
-            Sent = 0;
+            Sent = back ? lastSent : 0;
             return false;
         }
 
