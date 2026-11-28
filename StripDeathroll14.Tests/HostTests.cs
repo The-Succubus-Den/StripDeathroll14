@@ -194,6 +194,39 @@ public class HostTests
         Assert.Single(t.Sent, s => s.Manual);
     }
 
+    [Fact]
+    public void EditsAndSeatChangesDoNotBuyASecondWrongRollCallInTheSameTurn()
+    {
+        var t = Table.InTurns(auto: true);              // Ann up, fresh /random
+        t.Roll("Ann Lee", 50, 100);
+        Assert.Single(t.SentLines, l => l.StartsWith("[WRONG]"));
+        Assert.True(t.Host.EditRoll(1, 501, null));     // Bo's opening 500 -> 501: replayed, Ann still up with her wrong roll waiting
+        t.Game.Add("Di Moon");
+        t.Host.RemovePlayer(t.P("Cy Fox"));
+        t.Game.Move(t.P("Bo Ray"), 1);
+        Assert.Equal(t.P("Ann Lee"), t.Game.Current);
+        t.Host.AcceptPending();                          // settle it the other way round: the turn moves on...
+        Assert.True(t.Host.DeleteRoll(t.Game.RollLog.Count - 1)); // ...and the delete brings Ann's same turn back
+        Assert.Equal(t.P("Ann Lee"), t.Game.Current);
+        t.Roll("Ann Lee", 60, 100);
+        Assert.Single(t.SentLines, l => l.StartsWith("[WRONG]"));
+        Assert.Contains("already made this turn", t.Host.LastAlert);
+    }
+
+    [Fact]
+    public void AnOpeningWrongRollIsCalledOncePerPlayerEvenWithOthersInBetween()
+    {
+        var t = new Table("Ann Lee", "Bo Ray", "Cy Fox") { AutoPost = true };
+        t.Host.StartRound();
+        t.Roll("Ann Lee", 5, 10);
+        t.Roll("Bo Ray", 5, 10);
+        t.Roll("Ann Lee", 6, 10);                        // Bo's call in between used to let Ann have a second one
+        Assert.Equal(["[WRONG] Ann Lee 5 10 /random", "[WRONG] Bo Ray 5 10 /random"], t.SentLines.Where(l => l.StartsWith("[WRONG]")));
+        t.Host.StartRound();                             // a restart starts the opening over: a new call is due
+        t.Roll("Ann Lee", 7, 10);
+        Assert.Equal("[WRONG] Ann Lee 7 10 /random", t.SentLines[^1]);
+    }
+
     // ---- fuzz: random hosts, random rolls, random edits; the rules are checked after every step ----
 
     private static readonly string[] Pool = ["Ann Lee", "Bo Ray", "Cy Fox", "Di Moon", "Ed Hale", "Flo Kay", "Gus Ward"];
@@ -209,12 +242,27 @@ public class HostTests
             foreach (var k in Enum.GetValues<CallKind>()) if (rng.Next(3) == 0) t.Held.Add(k);
             t.OnSend = line => CheckAutoSend(t, line);
             var log = new List<string>();
+            var start = 0;                   // which start of the round (restarts, new rounds, new games), counted by the test itself
+            var wrongCalls = new HashSet<string>();
             for (var i = 0; i < 250; i++, steps++)
             {
+                var g = t.Game;
+                var (game, round, echoed, sent) = (g.GameNumber, g.Round, t.Echoed.Count, t.Sent.Count);
+                var turn = g.Phase == Phase.Opening ? $"{game}/{round}/{start}/o"
+                    : $"{game}/{round}/{start}/{g.Phase}/{g.RollLog.Count(r => r.Round == round && r.Note is RollNote.Counted or RollNote.Accepted or RollNote.Won)}/{g.Current?.Name}";
+                var pendingName = g.Pending?.Player.Name;
                 var what = Step(t, rng);
                 log.Add(what);
+                if (what.StartsWith("start/restart") || what.StartsWith("pick") || what == "new game" || g.Round != round || g.GameNumber != game) start++;
                 try
                 {
+                    // USER RULE: one wrong-roll call per turn (per player in the opening), whatever is edited, added, removed or moved
+                    string? called = null;
+                    if (what.StartsWith("roll ") && t.Echoed.Skip(echoed).Any(e => e.Contains("Called them to reroll.") || e.Contains("waits for Post.")))
+                        called = what.Split(' ')[1] + " " + what.Split(' ')[2];
+                    if (called is not null) Assert.True(wrongCalls.Add($"{turn}/{called}"), $"a second wrong-roll call for {called} in turn {turn}");
+                    if (what == "ask" && t.Sent.Skip(sent).Any(s => s.Manual && s.Line.StartsWith("[WRONG]")))
+                        wrongCalls.Add($"{turn}/{pendingName}"); // Ask always sends (even after the automatic call) and counts as the turn's call
                     CheckGame(t.Game);
                     CheckProposed(t);
                     CheckReplayIsStable(t);

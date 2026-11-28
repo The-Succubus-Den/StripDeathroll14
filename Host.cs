@@ -16,7 +16,7 @@ public sealed record HostSettings(
 /// </summary>
 public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Action<string, string> send, Action<string> echo)
 {
-    private string? wrongRollCalledFor; // turn + player whose wrong roll already got its reroll call: one per turn (per player in the opening)
+    private readonly HashSet<string> wrongRollCalled = []; // turn + player whose wrong roll already got its reroll call: one per turn (per player in the opening)
     private bool alertIsPending;        // LastAlert is about the wrong roll waiting for Accept; it goes once that is settled
     private (Player Player, string Line)? waitingWrongRoll; // the reroll call last put in Proposed, to take out once it is answered
 
@@ -51,7 +51,7 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
     {
         Game.NewGame();
         ClearAlert();
-        wrongRollCalledFor = null;
+        wrongRollCalled.Clear();
         Proposed.Clear();
     }
 
@@ -137,7 +137,7 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
         if (Game.Pending is not { } pending || Game.Phase != Phase.Turns || pending.Player != Game.Current) return;
         var line = WrongRollLine(pending);
         Proposed.Remove(line);
-        wrongRollCalledFor = $"{Game.TurnId}/{pending.Player.Name}";
+        wrongRollCalled.Add($"{Game.TurnId}/{pending.Player.Name}");
         send(CallPrefix, line);
     }
 
@@ -215,8 +215,7 @@ public sealed class GameHost(DeathrollGame game, Func<HostSettings> settings, Ac
     private WrongRollCall CallWrongRollOnce(Player p, int value, int? max, int? limit)
     {
         var key = $"{Game.TurnId}/{p.Name}";
-        if (wrongRollCalledFor == key) return WrongRollCall.AlreadyMade;
-        wrongRollCalledFor = key;
+        if (!wrongRollCalled.Add(key)) return WrongRollCall.AlreadyMade;
         var line = Lines.WrongRoll(p.Name, value, max ?? DeathrollGame.OpeningMax, RollCommand(limit), S.Messages);
         Propose((CallKind.WrongRoll, line));
         if (!Proposed.Contains(line)) return WrongRollCall.Sent;

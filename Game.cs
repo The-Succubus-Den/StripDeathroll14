@@ -165,8 +165,21 @@ public sealed class DeathrollGame
     public string? Champion => Phase == Phase.GameOver ? champion : null;
     private string? champion;
 
-    /// <summary>Changes whenever the turn moves (or the round or game changes); a wrong roll leaves it as it is.</summary>
-    public string TurnId => $"{GameNumber}/{Round}/{turnSerial}";
+    /// <summary>
+    /// Names the turn by what it is, not by how the state got there: the round (and which start of it), how many rolls of
+    /// it have counted, and who is up. So a wrong roll, a roll edit or replay that leaves the turn where it was, and a
+    /// player listed, removed or moved elsewhere at the table all keep it; the turn moving, a restart, a new round or game
+    /// change it. In the opening it is the whole opening (the wrong-roll guard adds the player).
+    /// </summary>
+    public string TurnId => Phase switch
+    {
+        Phase.Opening => $"{GameNumber}/{Round}/{roundSerial}/o",
+        Phase.Turns => $"{GameNumber}/{Round}/{roundSerial}/t/{CountedThisRound}/{Current?.Name}",
+        _ => $"{GameNumber}/{Round}/{roundSerial}/{Phase}",
+    };
+
+    private int CountedThisRound => RollLog.Skip(RoundStart).Count(r => r.Note is RollNote.Counted or RollNote.Accepted or RollNote.Won);
+    private int roundSerial; // one per start of a round (a restart included) and per new game or cleared table; a replay keeps it
 
     /// <summary>No round in play, so the current game's lines can go too (a round in play needs its rolls to be edited).</summary>
     public bool CanClearCurrentHistory => Phase is Phase.Setup or Phase.GameOver;
@@ -261,6 +274,7 @@ public sealed class DeathrollGame
         Pending = null;
         Limit = null;
         turnSerial++;
+        roundSerial++;
         if (Phase != Phase.Setup) Phase = Phase.Setup;
     }
 
@@ -310,6 +324,7 @@ public sealed class DeathrollGame
         if (Round > 0 && History.All(h => h.Round != Round)) RollLog.RemoveAll(r => r.Round == Round);
         else Round++;
         roundStarter = Round > 1 ? StarterAfterLastWinner() ?? roundStarter : null; // winner gone: Remove already moved roundStarter on
+        roundSerial++;
         FreshRound(); // a new (or restarted) round: everyone listed now plays it from its start
         BeginRound();
     }
@@ -367,6 +382,7 @@ public sealed class DeathrollGame
         OpeningTie = false;
         WinningRoll = 0;
         turnSerial++;
+        roundSerial++;
     }
 
     /// <summary>The host may fix this round's rolls (and add missed ones) from its start until the next round begins.</summary>
@@ -505,6 +521,7 @@ public sealed class DeathrollGame
         // The piece is already off, so a player who just went out is skipped (NextActive ignores Out).
         roundStarter = NextActive(Winner);
         Round++;
+        roundSerial++;
         FreshRound();
         BeginRound();
         return true;
