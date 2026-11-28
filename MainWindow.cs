@@ -550,6 +550,7 @@ public sealed partial class MainWindow : Window
 
         Kos.Section("Game lines");
         ImGui.TextDisabled("What the plugin posts during a game. Words in {braces} are filled in; a blank line uses the default.");
+        DrawPlaceholders();
         var m = config.Messages;
         const string ann = "Ann Lee", bo = "Bo Ray";
         DrawMessage("Round start", "{round} {roll}", m.Opening, v => m.Opening = v, () => Lines.Opening(3, "/random", m));
@@ -565,11 +566,40 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>One editable game line with its placeholders, a filled-in example (red when it could not be sent) and Default.</summary>
+    /// <summary>Every {key} a game line can use and what fills it; keep in step with the Fill calls in Lines (Game.cs).</summary>
+    private static readonly (string Key, string Meaning)[] Placeholders =
+    [
+        ("{name}", "the player the line is about: who is called, who won, who strips, who rolled wrong"),
+        ("{names}", "everyone still to roll the opening, comma-separated (the first 6, then \"and N more\")"),
+        ("{roll}", "the roll to type: /random, /dice party or /dice alliance, with the number once there is one (/random 412)"),
+        ("{number}", "the number rolled: the winning roll, or the wrong roll"),
+        ("{max}", "what the wrong roll was out of (999 in \"out of 999\")"),
+        ("{round}", "the round number"),
+        ("{piece}", "the piece taken off, in lower case (top, shoes)"),
+        ("{left}", "pieces still on, with the word (2 pieces, 1 piece)"),
+    ];
+
+    private static void DrawPlaceholders()
+    {
+        if (!ImGui.CollapsingHeader("Placeholders###placeholders")) return;
+        ImGui.TextDisabled("Type them exactly, braces and lower case. Each line lists the ones it fills, next to its name;\n" +
+                           "any other {word} is posted as typed. The rules and ad have none.");
+        foreach (var (key, meaning) in Placeholders)
+        {
+            ImGui.Bullet();
+            ImGui.TextColored(ImGuiColors.DalamudYellow, key);
+            ImGui.SameLine();
+            ImGui.TextUnformatted(meaning);
+        }
+    }
+
     private void DrawMessage(string label, string keys, string value, Action<string> set, Func<string> example)
     {
         ImGui.TextUnformatted(label);
         ImGui.SameLine();
         ImGui.TextDisabled(keys);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(string.Join("\n", keys.Split(' ').Select(k => $"{k}: {Placeholders.First(p => p.Key == k).Meaning}")));
         ImGui.SetNextItemWidth(-ImGui.CalcTextSize("Default").X - 4 * ImGui.GetFrameHeight());
         if (ImGui.InputText($"##{label}", ref value, 400)) set(value);
         if (ImGui.IsItemDeactivatedAfterEdit()) plugin.SaveConfig();
