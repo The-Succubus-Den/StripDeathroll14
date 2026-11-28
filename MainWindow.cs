@@ -293,6 +293,9 @@ public sealed partial class MainWindow : Window
         }
 
         ImGui.SameLine();
+        if (MaterialKos.Button("Add me", MaterialButton.Tonal, FontAwesomeIcon.User)) addNote = plugin.AddMe();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Adds you (the character you are logged in as) to the end of the list.");
+        ImGui.SameLine();
         if (MaterialKos.Button("Add target", MaterialButton.Tonal, FontAwesomeIcon.Crosshairs)) addNote = plugin.AddTarget();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Adds the player you have targeted in game.");
         ImGui.SameLine();

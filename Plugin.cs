@@ -228,6 +228,14 @@ public sealed class Plugin : IDalamudPlugin
         return names.Count(n => Game.Add(n)); // Add validates each name and skips duplicates
     }
 
+    /// <summary>Adds you (the logged-in character); returns a note for the window.</summary>
+    public string AddMe()
+    {
+        var name = MyName;
+        if (name.Length == 0) return "Not logged in.";
+        return Game.Add(name) ? $"Added {name}." : $"{name} is already listed.";
+    }
+
     /// <summary>Adds your current in-game target; returns a note for the window.</summary>
     public string AddTarget()
     {
