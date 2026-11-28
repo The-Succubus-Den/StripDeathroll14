@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Game.Chat;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
+using Dalamud.Game.Gui.Toast;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
@@ -37,11 +38,17 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ITargetManager targetManager;
     private readonly IObjectTable objects;
     private readonly IGameGui gameGui;
+    private readonly IToastGui toastGui;
     private readonly KosOverlay overlay;
     private readonly WorldMarkers markers = new();
     private readonly List<(Player Player, Vector3 At)> seen = []; // filled on the framework thread, drawn in Draw
     private readonly Dictionary<Player, Vector3> spots = []; // rings placed by hand; both threads are the main thread
     private readonly ReminderClock reminder = new();
+    private readonly HashSet<string> nudged = []; // who the last reminder was for, and when: their circles ripple briefly
+    private long nudgeAt = long.MinValue;
+
+    /// <summary>How long a reminder's ripple on the player's circle (window and world) runs.</summary>
+    public const float NudgeSeconds = 1.6f;
     private readonly WindowSystem windowSystem = new("StripDeathroll14");
     private readonly MainWindow window;
     private readonly Outbox outbox = new();
@@ -89,6 +96,7 @@ public sealed class Plugin : IDalamudPlugin
         ITargetManager targetManager,
         IObjectTable objects,
         IGameGui gameGui,
+        IToastGui toastGui,
         IPluginLog log)
     {
         this.pluginInterface = pluginInterface;
@@ -101,6 +109,7 @@ public sealed class Plugin : IDalamudPlugin
         this.targetManager = targetManager;
         this.objects = objects;
         this.gameGui = gameGui;
+        this.toastGui = toastGui;
         overlay = new KosOverlay(pluginInterface.UiBuilder, log); // the GPU path is created lazily, only if switched on
 
         Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -320,9 +329,28 @@ public sealed class Plugin : IDalamudPlugin
         if (names.Count == 0) return;
         var opening = Game.Phase == Phase.Opening;
         var line = Lines.Reminder(names, RollCommand(opening ? null : Game.Limit), opening, Config.Messages);
-        // A wait's first reminder goes to the reminder channel; the same player's further ones go to the host's Echo only.
-        if (Config.ReminderOnlyMe || !reminder.LastWentToChat) chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {line}" });
+        // A wait's first reminder goes to the reminder channel (and the host gets a toast); the same wait's further ones,
+        // 10 s apart, go to the host's Echo only. Every one ripples the waiting players' circles.
+        var first = reminder.LastWentToChat;
+        if (Config.ReminderOnlyMe || !first) chatGui.Print(new XivChatEntry { Type = XivChatType.Echo, Message = $"[Deathroll] {line}" });
         else Enqueue(ReminderPrefix, line);
+        if (first) toastGui.ShowNormal(Lines.WaitingOn(names), new ToastOptions { Position = ToastPosition.Top });
+        var now = Environment.TickCount64;
+        nudged.Clear();
+        nudged.UnionWith(names);
+        nudgeAt = now;
+        markers.Nudge(names, now / 1000.0);
+    }
+
+    /// <summary>
+    /// 0 to 1 through the ripple on this player's circle from the last reminder, or null: none running, or they are no
+    /// longer awaited (they rolled, or the host entered their roll).
+    /// </summary>
+    public float? Nudge(Player p)
+    {
+        var t = (Environment.TickCount64 - nudgeAt) / 1000f / NudgeSeconds;
+        if (t is < 0 or >= 1 || !nudged.Contains(p.Name) || !Game.Waiting.Contains(p)) return null;
+        return t;
     }
 
     private static string? PlayerName(SeString s) => s.Payloads.OfType<PlayerPayload>().FirstOrDefault()?.PlayerName;

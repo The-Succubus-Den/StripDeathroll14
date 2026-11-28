@@ -684,9 +684,10 @@ public sealed partial class MainWindow : Window
                 ImGui.TextColored(ImGuiColors.DalamudYellow, "(not in an alliance: /a will fail)");
             }
         }
-        ImGui.TextDisabled($"After that long with no roll, the reminder line (Messages tab) is posted once in this channel. Further\n" +
-            $"reminders for the same player go to your Echo only (at most {ReminderClock.MaxPerTurn} per wait in all). The next player's first\n" +
-            "reminder goes to the channel again. Not while a wrong roll waits for you. Pause it from the Game tab.");
+        ImGui.TextDisabled($"After that long with no roll, the reminder line (Messages tab) is posted once in this channel, you get a\n" +
+            $"\"Waiting on ...\" toast and the player's circle ripples. Then every {ReminderClock.FollowUpMs / 1000} s it goes to your Echo only (with the ripple)\n" +
+            "until they roll or you enter their roll. The next player's first reminder goes to the channel again.\n" +
+            "Not while a wrong roll waits for you. Pause it from the Game tab.");
 
         Kos.Section("World markers", "02");
         var world = config.WorldMarkers;

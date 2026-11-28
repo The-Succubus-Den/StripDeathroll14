@@ -594,10 +594,14 @@ public sealed class DeathrollGame
     }
 }
 
-/// <summary>Fires a reminder after a quiet interval, at most MaxPerTurn times for one wait; any change of key restarts it.</summary>
+/// <summary>
+/// Fires a wait's first reminder after the quiet interval, then one every FollowUpMs until the wait ends (no limit);
+/// any change of key restarts it.
+/// </summary>
 public sealed class ReminderClock
 {
-    public const int MaxPerTurn = 3;
+    /// <summary>The gap between a wait's later (Echo) reminders, whatever the quiet interval is.</summary>
+    public const int FollowUpMs = 10_000;
     private string? key;
     private string? lastKey; // the wait before this one, and how many reminders it had: coming back to it is not a new wait
     private int lastSent;
@@ -626,7 +630,7 @@ public sealed class ReminderClock
     }
 
     /// <summary>Whole seconds (rounded up) until the next reminder, frozen while paused; null when none is coming.</summary>
-    public int? SecondsLeft(long now) => key is null || Sent >= MaxPerTurn ? null : (int)((pausedLeft ?? Math.Max(0, dueAt - now)) + 999) / 1000;
+    public int? SecondsLeft(long now) => key is null ? null : (int)((pausedLeft ?? Math.Max(0, dueAt - now)) + 999) / 1000;
 
     public bool Due(string? stateKey, long now, int intervalMs)
     {
@@ -637,15 +641,16 @@ public sealed class ReminderClock
             var back = stateKey is not null && stateKey == lastKey;
             if (key is not null) (lastKey, lastSent) = (key, Sent);
             key = stateKey;
-            dueAt = now + intervalMs;
-            if (pausedLeft is not null) pausedLeft = intervalMs;
             Sent = back ? lastSent : 0;
+            var wait = Sent == 0 ? intervalMs : FollowUpMs;
+            dueAt = now + wait;
+            if (pausedLeft is not null) pausedLeft = wait;
             return false;
         }
 
-        if (key is null || pausedLeft is not null || Sent >= MaxPerTurn || now < dueAt) return false;
+        if (key is null || pausedLeft is not null || now < dueAt) return false;
         Sent++;
-        dueAt = now + intervalMs;
+        dueAt = now + FollowUpMs;
         return true;
     }
 }
@@ -833,6 +838,10 @@ public static class Lines
         var shown = string.Join(", ", names.Take(6)) + (names.Count > 6 ? $" and {names.Count - 6} more" : "");
         return Fill(m?.ReminderOpening, D.ReminderOpening, ("names", shown), ("roll", cmd));
     }
+
+    /// <summary>The host's own toast for a wait's first reminder: everyone still awaited, first six then "and N more".</summary>
+    public static string WaitingOn(IReadOnlyList<string> names) =>
+        "Waiting on " + string.Join(", ", names.Take(6)) + (names.Count > 6 ? $" and {names.Count - 6} more" : "");
 
     public static string GameOver(string name, Messages? m = null) => Fill(m?.GameOver, D.GameOver, ("name", name));
 

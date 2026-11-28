@@ -11,6 +11,7 @@ internal sealed class WorldMarkers
     private readonly TurnCues cues = new();
     private readonly List<(string Name, double Start, Vector4 Color)> ripples = [];
     private (Player From, Player To, double Start)? handover;
+    private (HashSet<string> Names, double Start)? nudge; // a reminder just went out for these players
     private const float Inner = 0.85f, Outer = 1.0f; // metres round the player's feet
     private const float Tall = 9f, Short = 5f; // pillar heights: who rolls and who won stand out over next and starter
     private static readonly Vector3 OverHead = new(0, 2.4f, 0), Lift = new(0, 0.3f, 0); // the pulse leaves from the rings, a little off the ground
@@ -27,6 +28,7 @@ internal sealed class WorldMarkers
         var m = Scheme;
         beamScale = Math.Clamp(beam, 0f, 1f);
         Motion(s, game, seen, now, motion);
+        DrawNudge(s, game, seen, now, motion);
         foreach (var (p, at) in seen)
         {
             var head = at + OverHead;
@@ -61,6 +63,24 @@ internal sealed class WorldMarkers
                     s.Ring(at, Inner, Inner + 0.05f, m.Outline with { W = 0.6f });
                     break;
             }
+        }
+    }
+
+    /// <summary>A reminder went out for these players: a short, soft ripple round each one's ring while they are still awaited.</summary>
+    public void Nudge(IEnumerable<string> names, double now) => nudge = (names.ToHashSet(), now);
+
+    private void DrawNudge(KosShapes s, DeathrollGame game, IReadOnlyList<(Player Player, Vector3 At)> seen, double now, bool motion)
+    {
+        if (nudge is not { } nd) return;
+        var t = (float)((now - nd.Start) / Plugin.NudgeSeconds);
+        if (t is < 0 or >= 1) { nudge = null; return; }
+        var waiting = game.Waiting;
+        var c = Scheme.OnSurface;
+        foreach (var (p, at) in seen)
+        {
+            if (!nd.Names.Contains(p.Name) || !waiting.Contains(p)) continue;
+            if (motion) s.Ripple(at, 1.8f, t, c with { W = 0.8f }, waves: 2);
+            else s.Ring(at, Outer + 0.1f, Outer + 0.18f, c with { W = 0.7f * (1 - t) }); // Reduce motion: a still ring that fades
         }
     }
 

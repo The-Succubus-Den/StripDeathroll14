@@ -53,6 +53,38 @@ internal sealed class Table
 
 public class HostTests
 {
+    // A roll the host enters ends the wait exactly as the player's own roll would: the Echo reminders stop and the next
+    // player's wait starts fresh (its first reminder in the channel, after the full quiet time).
+    [Fact]
+    public void ARollTheHostEntersEndsTheWaitLikeARealRoll()
+    {
+        var t = Table.InTurns();
+        var clock = new ReminderClock();
+        Assert.Equal(["Ann Lee"], t.Game.Waiting.Select(p => p.Name));
+        Assert.False(clock.Due(t.Game.WaitingKey, 0, 30_000));
+        Assert.True(clock.Due(t.Game.WaitingKey, 30_000, 30_000));   // first: channel
+        Assert.True(clock.Due(t.Game.WaitingKey, 40_000, 30_000));   // then Echo, 10 s apart
+        Assert.StartsWith("Added", t.Host.AddRoll(t.P("Ann Lee"), 500, null));
+        Assert.Equal(["Bo Ray"], t.Game.Waiting.Select(p => p.Name));
+        Assert.False(clock.Due(t.Game.WaitingKey, 45_000, 30_000));  // Ann's wait is over: a new one for Bo
+        Assert.True(clock.NextGoesToChat);
+        Assert.False(clock.Due(t.Game.WaitingKey, 50_000, 30_000));  // no 10 s Echo beat carried over from Ann
+        Assert.False(clock.Due(t.Game.WaitingKey, 74_999, 30_000));
+        Assert.True(clock.Due(t.Game.WaitingKey, 75_000, 30_000));
+        Assert.True(clock.LastWentToChat);
+
+        // Opening: entering one missing roll moves the wait on to whoever is still missing theirs.
+        var o = new Table("Ann Lee", "Bo Ray", "Cy Fox");
+        o.Host.StartRound();
+        var c = new ReminderClock();
+        Assert.False(c.Due(o.Game.WaitingKey, 0, 30_000));
+        Assert.True(c.Due(o.Game.WaitingKey, 30_000, 30_000));
+        Assert.StartsWith("Added", o.Host.AddRoll(o.P("Bo Ray"), 400, null));
+        Assert.Equal(["Ann Lee", "Cy Fox"], o.Game.Waiting.Select(p => p.Name));
+        Assert.False(c.Due(o.Game.WaitingKey, 31_000, 30_000));
+        Assert.True(c.NextGoesToChat);
+    }
+
     [Fact]
     public void NoCallToTheWinnerWhileTheRoundWaitsForItsPick()
     {

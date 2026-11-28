@@ -429,10 +429,12 @@ public class GameTests
         Assert.False(clock.Due(g.WaitingKey, 40_000, 30_000));
         Assert.False(clock.Due(g.WaitingKey, 69_999, 30_000));
         Assert.True(clock.Due(g.WaitingKey, 70_000, 30_000));
-        Assert.True(clock.Due(g.WaitingKey, 100_000, 30_000));
-        Assert.True(clock.Due(g.WaitingKey, 130_000, 30_000));
-        Assert.False(clock.Due(g.WaitingKey, 999_000, 30_000)); // capped at MaxPerTurn
-        Assert.Null(clock.SecondsLeft(999_000));                // nothing more coming
+        Assert.False(clock.Due(g.WaitingKey, 79_999, 30_000));
+        Assert.True(clock.Due(g.WaitingKey, 80_000, 30_000));   // later ones 10 s apart, whatever the quiet time
+        for (var k = 1; k <= 50; k++)
+            Assert.True(clock.Due(g.WaitingKey, 80_000 + k * 10_000, 30_000), $"reminder {k + 2}"); // no limit
+        Assert.Equal(52, clock.Sent);
+        Assert.Equal(10, clock.SecondsLeft(580_000));           // still coming
         g.OnRoll(P(g, "Bo Ray"), 900, null);
         g.OnRoll(P(g, "Cy Dee"), 20, null);
         Assert.Equal(["Bo Ray"], g.Waiting.Select(p => p.Name));
@@ -537,6 +539,9 @@ public class GameTests
         Assert.Equal("Still waiting on Ann Lee, Bo Ray: roll /random to start the round.", Lines.Reminder(["Ann Lee", "Bo Ray"], "/random", true));
         var many = Enumerable.Range(0, 20).Select(i => "Abcdefghijklmno Abcdefghijklmno").ToList();
         Assert.True(Lines.IsSendable(Lines.Reminder(many, "/dice alliance", true))); // capped at 6 names
+        Assert.Equal("Waiting on Ann Lee", Lines.WaitingOn(["Ann Lee"]));
+        Assert.Equal("Waiting on Ann Lee, Bo Ray", Lines.WaitingOn(["Ann Lee", "Bo Ray"]));
+        Assert.EndsWith(", Abcdefghijklmno Abcdefghijklmno and 14 more", Lines.WaitingOn(many));
         Assert.False(Lines.IsSendable("/shout hi"));
         Assert.False(Lines.IsSendable("a\tb"));
         Assert.False(Lines.IsSendable(new string('x', 401)));
@@ -925,7 +930,8 @@ public class GameTests
         Assert.False(c.Due(null, 1500, 1000));           // a wrong roll waits for the host: no reminders
         Assert.False(c.Due("A", 1600, 1000));            // ...deleted: the same wait again
         Assert.False(c.NextGoesToChat);                  // its next reminder goes to Echo, not to chat a second time
-        Assert.True(c.Due("A", 2600, 1000));
+        Assert.False(c.Due("A", 11_599, 1000));
+        Assert.True(c.Due("A", 11_600, 1000));           // ...on the 10 s follow-up beat
         Assert.Equal(2, c.Sent);
         Assert.False(c.Due("B", 2700, 1000));            // a new wait starts in chat again
         Assert.True(c.NextGoesToChat);
@@ -1005,15 +1011,18 @@ public class GameTests
         Assert.True(clock.Due("t1/alice", 30_000, 30_000));
         Assert.True(clock.LastWentToChat);                     // first: the reminder channel
         Assert.False(clock.NextGoesToChat);
-        Assert.True(clock.Due("t1/alice", 60_000, 30_000));
-        Assert.False(clock.LastWentToChat);                    // second: Echo
-        Assert.True(clock.Due("t1/alice", 90_000, 30_000));
+        Assert.False(clock.Due("t1/alice", 39_999, 30_000));
+        Assert.True(clock.Due("t1/alice", 40_000, 30_000));
+        Assert.False(clock.LastWentToChat);                    // second: Echo, 10 s later
+        Assert.True(clock.Due("t1/alice", 50_000, 30_000));
         Assert.False(clock.LastWentToChat);                    // third: Echo
+        Assert.True(clock.Due("t1/alice", 90_000, 30_000));    // and on, every 10 s, until she rolls
+        Assert.False(clock.LastWentToChat);
         Assert.False(clock.Due("t2/bob", 95_000, 30_000));        // Alice rolled, Bob is up
         Assert.True(clock.NextGoesToChat);
         Assert.True(clock.Due("t2/bob", 125_000, 30_000));
         Assert.True(clock.LastWentToChat);                     // Bob's first goes to the channel again
-        Assert.True(clock.Due("t2/bob", 155_000, 30_000));
+        Assert.True(clock.Due("t2/bob", 135_000, 30_000));
         Assert.False(clock.LastWentToChat);
         Assert.False(clock.Due("t3/alice", 160_000, 30_000));  // Alice's next turn (a new turn, so a new key): back to the channel first
         Assert.True(clock.Due("t3/alice", 190_000, 30_000));

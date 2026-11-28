@@ -12,6 +12,23 @@ public sealed partial class MainWindow
     private const string SeatPayload = "SDR_SEAT";
     private int dragFrom = -1;
 
+    /// <summary>A reminder just went out for this player: two soft amber rings spread out from the seat and fade.</summary>
+    private static void DrawNudge(ImDrawListPtr draw, Vector2 pos, float node, float t, float scale, bool still)
+    {
+        var amber = ImGuiColors.DalamudOrange;
+        if (still) // Reduce motion: one ring that fades in place
+        {
+            draw.AddCircle(pos, node + 7 * scale, ImGui.GetColorU32(amber with { W = 0.9f * (1 - t) }), 32, 2 * scale);
+            return;
+        }
+        for (var k = 0; k < 2; k++)
+        {
+            var u = (t - k * 0.3f) / 0.7f;
+            if (u is < 0 or > 1) continue;
+            draw.AddCircle(pos, node + (3 + 16 * u) * scale, ImGui.GetColorU32(amber with { W = 0.85f * (1 - u) }), 32, 2 * scale);
+        }
+    }
+
     private void DrawCircle(DeathrollGame game)
     {
         var players = game.Players;
@@ -69,6 +86,7 @@ public sealed partial class MainWindow
             var isStarter = p == game.Starter;
 
             if (isCurrent) draw.AddCircle(pos, node + (4 + 2 * MathF.Sin((float)ImGui.GetTime() * 4)) * scale, green, 32, 2 * scale);
+            if (plugin.Nudge(p) is { } nt) DrawNudge(draw, pos, node, nt, scale, plugin.ReduceMotion);
             var fill = p.Out ? ImGui.GetColorU32(ImGuiCol.FrameBg)
                 : isCurrent ? green
                 : isStarter ? yellow
