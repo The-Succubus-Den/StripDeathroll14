@@ -94,7 +94,12 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150);
         if (Combo("Calls in", config.CallChannel, Enum.GetValues<CallChannel>(), CallLabel, c => config.CallChannel = c)) plugin.SaveConfig();
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Where calls, results and the wrong-roll call are posted. Venue default: yell in a private room, party or alliance in public.");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Where calls, results and the wrong-roll call are posted. Venue default: yell in a private room, party or alliance in public.\nAlliance: always /a, which the game only accepts while you are in an alliance.");
+        if (config.CallChannel == CallChannel.Alliance && !plugin.InAlliance)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudYellow, "Not in an alliance: /a lines will fail");
+        }
 
         var auto = config.AutoPost;
         if (MaterialKos.Switch("Auto-post", ref auto)) { config.AutoPost = auto; plugin.SaveConfig(); }
@@ -673,6 +678,11 @@ public sealed partial class MainWindow : Window
             if (Combo("Remind in", config.ReminderCallChannel, Enum.GetValues<CallChannel>(), CallLabel, c => config.ReminderCallChannel = c)) plugin.SaveConfig();
             ImGui.SameLine();
             ImGui.TextDisabled($"now {plugin.ReminderPrefix}");
+            if (config.ReminderCallChannel == CallChannel.Alliance && !plugin.InAlliance)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.DalamudYellow, "(not in an alliance: /a will fail)");
+            }
         }
         ImGui.TextDisabled($"After that long with no roll, the reminder line (Messages tab) is posted once in this channel. Further\n" +
             $"reminders for the same player go to your Echo only (at most {ReminderClock.MaxPerTurn} per wait in all). The next player's first\n" +

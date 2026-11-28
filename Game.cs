@@ -5,7 +5,7 @@ namespace StripDeathroll14;
 /// <summary>Where the game is played. Saved as a number: never renumber, only append.</summary>
 public enum Venue
 {
-    Private = 0, // say
+    Private = 0, // yell
     Public = 1,  // party, or alliance when in one
 }
 
@@ -20,10 +20,11 @@ public enum TextChannel
 /// <summary>Where the host's calls and results go. Saved as a number: never renumber, only append.</summary>
 public enum CallChannel
 {
-    Venue = 0, // say in a private room; party, or alliance when in one, in public
+    Venue = 0, // yell in a private room; party, or alliance when in one, in public
     Say = 1,
     Yell = 2,
     Party = 3,
+    Alliance = 4, // always /a; the game refuses it when you are not in an alliance
 }
 
 /// <summary>What a player wears; the winner's pick takes one off.</summary>
@@ -796,6 +797,7 @@ public static class Lines
         CallChannel.Say => "/s",
         CallChannel.Yell => "/y",
         CallChannel.Party => "/p",
+        CallChannel.Alliance => "/a",
         _ => AnnouncePrefix(venue, alliance),
     };
 

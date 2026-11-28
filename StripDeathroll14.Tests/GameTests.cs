@@ -531,6 +531,8 @@ public class GameTests
         Assert.Equal("/y", Lines.CallPrefix(CallChannel.Yell, Venue.Public, true));
         Assert.Equal("/s", Lines.CallPrefix(CallChannel.Say, Venue.Public, false));
         Assert.Equal("/p", Lines.CallPrefix(CallChannel.Party, Venue.Private, false));
+        Assert.Equal("/a", Lines.CallPrefix(CallChannel.Alliance, Venue.Private, false));
+        Assert.Equal("/a", Lines.CallPrefix(CallChannel.Alliance, Venue.Public, true));
         Assert.Equal("Reminder: Ann Lee, it's your turn - roll /random 40", Lines.Reminder(["Ann Lee"], "/random 40", false));
         Assert.Equal("Still waiting on Ann Lee, Bo Ray: roll /random to start the round.", Lines.Reminder(["Ann Lee", "Bo Ray"], "/random", true));
         var many = Enumerable.Range(0, 20).Select(i => "Abcdefghijklmno Abcdefghijklmno").ToList();
@@ -549,7 +551,7 @@ public class GameTests
         Assert.Equal(0, (int)Venue.Private);
         Assert.Equal(1, (int)Venue.Public);
         Assert.Equal([0, 1, 2], new[] { TextChannel.Say, TextChannel.Yell, TextChannel.Party }.Select(c => (int)c));
-        Assert.Equal([0, 1, 2, 3], new[] { CallChannel.Venue, CallChannel.Say, CallChannel.Yell, CallChannel.Party }.Select(c => (int)c));
+        Assert.Equal([0, 1, 2, 3, 4], new[] { CallChannel.Venue, CallChannel.Say, CallChannel.Yell, CallChannel.Party, CallChannel.Alliance }.Select(c => (int)c));
     }
 
     // A round can never ask for rolls forever: each accepted roll is <= the limit, a 1 always ends it.
