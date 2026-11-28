@@ -229,6 +229,20 @@ public sealed class Plugin : IDalamudPlugin
         ClearSettledAlert();
     }
 
+    /// <summary>
+    /// The Ask for reroll button: sends the wrong roller their reroll call (naming the right roll) in the call channel
+    /// right away, whatever Auto-post says, because the host pressed it. Drops the same line from Proposed so it is not
+    /// posted twice, and counts as this turn's wrong-roll call.
+    /// </summary>
+    public void AskForReroll()
+    {
+        if (Game.Pending is not { } pending || Game.Phase != Phase.Turns || pending.Player != Game.Current) return;
+        var line = Lines.WrongRoll(pending.Player.Name, pending.Value, pending.Max ?? DeathrollGame.OpeningMax, RollCommand(Game.Limit), Config.Messages);
+        Proposed.Remove(line);
+        wrongRollCalledFor = $"{Game.TurnId}/{pending.Player.Name}";
+        Enqueue(CallPrefix, line);
+    }
+
     public void CallCurrent()
     {
         if (Game.Current is { } p) Propose(Lines.Call(p.Name, RollCommand(Game.Limit), Config.Messages));

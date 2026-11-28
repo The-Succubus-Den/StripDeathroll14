@@ -139,8 +139,9 @@ public sealed partial class MainWindow : Window
                 if (MaterialKos.Button($"Accept {pending.Value}", MaterialButton.Filled, FontAwesomeIcon.Check)) plugin.AcceptPending();
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Count {pending.Value} as if it had been the right roll: the turn moves on (or the round is won).");
                 ImGui.SameLine();
-                if (MaterialKos.Button("Ask for reroll", MaterialButton.Tonal, FontAwesomeIcon.RedoAlt)) plugin.CallCurrent();
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Posts the call for {pending.Player.Name} again ({plugin.RollCommand(game.Limit)}). The wrong roll stays uncounted;\n" +
+                if (MaterialKos.Button("Ask for reroll", MaterialButton.Tonal, FontAwesomeIcon.RedoAlt)) plugin.AskForReroll();
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Sends {pending.Player.Name} the wrong-roll call in the call channel now, Auto-post or not\n" +
+                    $"(that was out of {pending.Max ?? DeathrollGame.OpeningMax} - please roll {plugin.RollCommand(game.Limit)}). The wrong roll stays uncounted;\n" +
                     "their next roll with the right number counts, or Accept counts this one.");
             }
 
